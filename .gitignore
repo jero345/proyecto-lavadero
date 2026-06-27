@@ -1,0 +1,30 @@
+# Dependencias y artefactos de build (cubre frontend/ y cualquier subcarpeta)
+node_modules
+dist
+dist-ssr
+*.local
+*.tsbuildinfo
+
+# Variables de entorno (¡NO commitear claves!)
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.sw?
+
+# Supabase CLI (si se llega a usar)
+backend/.branches
+backend/.temp
+.supabase
