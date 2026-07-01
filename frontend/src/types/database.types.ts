@@ -96,6 +96,7 @@ export type Database = {
           metodo_pago: MetodoPago | null;
           total: number;
           foto_url: string | null;
+          observaciones: string | null;
           created_by: string;
           created_at: string;
         };
@@ -108,6 +109,7 @@ export type Database = {
           metodo_pago?: MetodoPago | null;
           total?: number;
           foto_url?: string | null;
+          observaciones?: string | null;
           created_by: string;
           created_at?: string;
         };
@@ -293,6 +295,8 @@ export type Database = {
           p_cliente_id?: string | null;
           p_vehiculo_id?: string | null;
           p_foto_url?: string | null;
+          p_observaciones?: string | null;
+          p_total_override?: number | null;
         };
         Returns: { orden_id: string; total: number; items: number; cobrada: boolean };
       };

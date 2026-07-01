@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Camera, Check, Loader2, Plus, Trash2 } from "lucide-react";
+import { Check, Loader2, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -24,14 +25,13 @@ import {
 import { cn } from "@/lib/utils";
 import { formatCOP } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
-import { subirFotoOrden } from "@/lib/storage";
 import { TIPOS_VEHICULO, METODOS_PAGO } from "@/lib/dominio";
 import { useAuth } from "@/hooks/useAuth";
 import { useClientes, useEmpleados, useServicios } from "@/hooks/queries";
 import type { MetodoPago, TipoVehiculo } from "@/types/database.types";
 
 export default function POS() {
-  const { profile } = useAuth();
+  const { profile, isStaff } = useAuth();
   const queryClient = useQueryClient();
 
   const { data: servicios = [], isLoading: cargandoServicios } = useServicios(true);
@@ -44,7 +44,9 @@ export default function POS() {
   const [clienteId, setClienteId] = useState<string>("");
   const [empleadoId, setEmpleadoId] = useState<string>("");
   const [metodoPago, setMetodoPago] = useState<MetodoPago | "">("");
-  const [file, setFile] = useState<File | null>(null);
+  const [observaciones, setObservaciones] = useState("");
+  // Total editable (solo staff). null = usar el subtotal del catálogo.
+  const [totalManual, setTotalManual] = useState<string | null>(null);
 
   // Servicios del tipo elegido, agrupados por categoría.
   const serviciosFiltrados = useMemo(
@@ -89,7 +91,8 @@ export default function POS() {
     setPlaca("");
     setClienteId("");
     setMetodoPago("");
-    setFile(null);
+    setObservaciones("");
+    setTotalManual(null);
     setEmpleadoId("");
   }
 
@@ -103,9 +106,13 @@ export default function POS() {
       // (pendiente de cobro) y se cobra luego desde el Dashboard.
       const cobrada = Boolean(metodoPago);
 
-      // Sube la foto (opcional) y obtiene su ruta.
-      let fotoPath: string | null = null;
-      if (file) fotoPath = await subirFotoOrden(file, profile.id);
+      // Total final (override): solo si el staff lo editó. El servidor lo valida.
+      let overrideTotal: number | null = null;
+      if (isStaff && totalManual !== null && totalManual.trim() !== "") {
+        const n = Number(totalManual);
+        if (!Number.isFinite(n) || n < 0) throw new Error("El total ingresado no es válido");
+        overrideTotal = n;
+      }
 
       const { data, error } = await supabase.rpc("crear_orden", {
         p_servicio_ids: Array.from(seleccion),
@@ -114,7 +121,9 @@ export default function POS() {
         p_placa: placa.trim().toUpperCase(),
         p_cliente_id: clienteId || null,
         p_vehiculo_id: null,
-        p_foto_url: fotoPath,
+        p_foto_url: null,
+        p_observaciones: observaciones.trim() || null,
+        p_total_override: overrideTotal,
       });
       if (error) throw error;
       return { total: (data as { total: number }).total, cobrada };
@@ -145,22 +154,33 @@ export default function POS() {
             <CardTitle className="text-base">1. Tipo de vehículo</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {TIPOS_VEHICULO.map((t) => (
-              <button
-                key={t.value}
-                type="button"
-                onClick={() => cambiarTipo(t.value)}
-                className={cn(
-                  "flex flex-col items-center gap-1 rounded-lg border-2 p-4 transition-colors",
-                  tipo === t.value
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/40",
-                )}
-              >
-                <span className="text-2xl">{t.emoji}</span>
-                <span className="text-sm font-medium">{t.label}</span>
-              </button>
-            ))}
+            {TIPOS_VEHICULO.map((t) => {
+              const activo = tipo === t.value;
+              const Icon = t.icon;
+              return (
+                <button
+                  key={t.value}
+                  type="button"
+                  onClick={() => cambiarTipo(t.value)}
+                  className={cn(
+                    "flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all",
+                    activo
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "border-border hover:border-primary/40 hover:bg-accent/50",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-12 w-12 items-center justify-center rounded-full transition-colors",
+                      activo ? "bg-primary text-primary-foreground shadow-sm" : t.color,
+                    )}
+                  >
+                    <Icon className="h-6 w-6" />
+                  </span>
+                  <span className="text-sm font-medium">{t.label}</span>
+                </button>
+              );
+            })}
           </CardContent>
         </Card>
 
@@ -284,27 +304,18 @@ export default function POS() {
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label>Foto del vehículo (opcional)</Label>
-              <div className="flex items-center gap-2">
-                <label className="flex flex-1 cursor-pointer items-center gap-2 rounded-md border border-dashed p-2 text-sm text-muted-foreground hover:border-primary/40">
-                  <Camera className="h-4 w-4" />
-                  {file ? file.name : "Tomar / subir foto"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                  />
-                </label>
-                {file && (
-                  <Button variant="ghost" size="icon" onClick={() => setFile(null)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                )}
+            {isStaff && (
+              <div className="space-y-2">
+                <Label htmlFor="observaciones">Observaciones (opcional)</Label>
+                <Textarea
+                  id="observaciones"
+                  rows={3}
+                  placeholder="Notas o un servicio adicional que no está en la lista…"
+                  value={observaciones}
+                  onChange={(e) => setObservaciones(e.target.value)}
+                />
               </div>
-            </div>
+            )}
 
             <div className="space-y-2">
               <Label>Método de pago (opcional)</Label>
@@ -339,12 +350,50 @@ export default function POS() {
         {/* Total + acción */}
         <Card>
           <CardContent className="space-y-3 pt-6">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">
-                {seleccion.size} servicio(s)
-              </span>
-              <span className="text-2xl font-bold">{formatCOP(total)}</span>
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <span>{seleccion.size} servicio(s)</span>
+              <span>Subtotal {formatCOP(total)}</span>
             </div>
+
+            {isStaff ? (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="total-final">Total a cobrar</Label>
+                  {totalManual !== null && (
+                    <button
+                      type="button"
+                      className="text-xs text-primary hover:underline"
+                      onClick={() => setTotalManual(null)}
+                    >
+                      Usar subtotal
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lg font-bold text-muted-foreground">
+                    $
+                  </span>
+                  <Input
+                    id="total-final"
+                    type="number"
+                    min={0}
+                    value={totalManual ?? String(total)}
+                    onChange={(e) => setTotalManual(e.target.value)}
+                    className="h-12 pl-7 text-right text-2xl font-bold"
+                  />
+                </div>
+                {totalManual !== null && Number(totalManual) !== total && (
+                  <p className="text-xs text-amber-600">
+                    Total ajustado (subtotal del catálogo: {formatCOP(total)}).
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center justify-end">
+                <span className="text-2xl font-bold">{formatCOP(total)}</span>
+              </div>
+            )}
+
             <Button
               className="w-full"
               size="lg"

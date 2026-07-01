@@ -1,15 +1,22 @@
 // Etiquetas y metadatos de dominio (labels en español, colores de estado).
+import { Bike, Car, Truck, Gauge, type LucideIcon } from "lucide-react";
+
 import type {
   EstadoOrden,
   MetodoPago,
   TipoVehiculo,
 } from "@/types/database.types";
 
-export const TIPOS_VEHICULO: { value: TipoVehiculo; label: string; emoji: string }[] = [
-  { value: "moto", label: "Moto", emoji: "🏍️" },
-  { value: "moto_alto", label: "Moto alto cil.", emoji: "🏍️" },
-  { value: "auto", label: "Auto", emoji: "🚗" },
-  { value: "camioneta", label: "Camioneta", emoji: "🚙" },
+export const TIPOS_VEHICULO: {
+  value: TipoVehiculo;
+  label: string;
+  icon: LucideIcon;
+  color: string;
+}[] = [
+  { value: "moto", label: "Moto", icon: Bike, color: "bg-sky-100 text-sky-600" },
+  { value: "moto_alto", label: "Moto alto cil.", icon: Gauge, color: "bg-indigo-100 text-indigo-600" },
+  { value: "auto", label: "Auto", icon: Car, color: "bg-emerald-100 text-emerald-600" },
+  { value: "camioneta", label: "Camioneta", icon: Truck, color: "bg-amber-100 text-amber-600" },
 ];
 
 export const LABEL_TIPO_VEHICULO: Record<TipoVehiculo, string> = {

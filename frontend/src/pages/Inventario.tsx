@@ -1,13 +1,13 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
-  ArrowDownCircle,
-  ArrowUpCircle,
   Loader2,
-  Pencil,
+  PackageMinus,
+  PackagePlus,
   Plus,
   ShoppingCart,
+  SquarePen,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/select";
 import { formatCOP, formatFechaHora } from "@/lib/format";
 import { METODOS_PAGO, LABEL_METODO_PAGO } from "@/lib/dominio";
+import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import type {
   MetodoPago,
@@ -48,6 +49,37 @@ import type {
   TipoMovInventario,
   VentaProducto,
 } from "@/types/database.types";
+
+/** Botón de icono redondo con hover suave — para las acciones de cada fila. */
+function IconAction({
+  title,
+  className,
+  disabled,
+  onClick,
+  children,
+}: {
+  title: string;
+  className?: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors",
+        "disabled:pointer-events-none disabled:opacity-40",
+        className,
+      )}
+    >
+      {children}
+    </button>
+  );
+}
 
 export default function Inventario() {
   const queryClient = useQueryClient();
@@ -137,13 +169,15 @@ export default function Inventario() {
               </TableHeader>
               <TableBody>
                 {productos.map((p) => {
-                  const bajo = Number(p.stock_actual) <= Number(p.stock_minimo);
-                  const sinPrecio = Number(p.precio) <= 0;
+                  const stock = Number(p.stock_actual) || 0;
+                  const precio = Number(p.precio) || 0;
+                  const bajo = stock <= (Number(p.stock_minimo) || 0);
+                  const sinPrecio = precio <= 0;
                   return (
                     <TableRow key={p.id}>
                       <TableCell className="font-medium">{p.nombre}</TableCell>
                       <TableCell className="text-right">
-                        {p.stock_actual} {p.unidad ?? ""}
+                        {stock} {p.unidad ?? ""}
                       </TableCell>
                       <TableCell className="text-right text-muted-foreground">
                         {p.stock_minimo}
@@ -152,7 +186,7 @@ export default function Inventario() {
                         {sinPrecio ? (
                           <span className="text-muted-foreground">—</span>
                         ) : (
-                          formatCOP(p.precio)
+                          formatCOP(precio)
                         )}
                       </TableCell>
                       <TableCell>
@@ -165,55 +199,54 @@ export default function Inventario() {
                           <Badge variant="secondary">OK</Badge>
                         )}
                       </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-1.5">
                           <Button
                             size="sm"
-                            variant="outline"
-                            className="gap-1"
+                            className="gap-1.5 rounded-full shadow-sm"
                             title={
                               sinPrecio
                                 ? "Define un precio para poder vender"
-                                : "Vender"
+                                : "Vender producto"
                             }
-                            disabled={sinPrecio || Number(p.stock_actual) <= 0}
+                            disabled={sinPrecio || stock <= 0}
                             onClick={() => setVendiendo(p)}
                           >
                             <ShoppingCart className="h-4 w-4" />
                             Vender
                           </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            title="Editar producto"
-                            onClick={() => setEditando(p)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
+
+                          <div className="mx-1 h-6 w-px bg-border" />
+
+                          <IconAction
                             title="Entrada de stock"
+                            className="text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700"
                             disabled={mover.isPending}
                             onClick={() => {
                               const c = Number(prompt(`Entrada de ${p.nombre}: cantidad`));
                               if (c) mover.mutate({ producto: p, tipo: "entrada", cantidad: c });
                             }}
                           >
-                            <ArrowUpCircle className="h-4 w-4 text-green-600" />
-                          </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
+                            <PackagePlus className="h-[18px] w-[18px]" />
+                          </IconAction>
+                          <IconAction
                             title="Salida de stock (ajuste/merma)"
+                            className="text-rose-600 hover:bg-rose-100 hover:text-rose-700"
                             disabled={mover.isPending}
                             onClick={() => {
                               const c = Number(prompt(`Salida de ${p.nombre}: cantidad`));
                               if (c) mover.mutate({ producto: p, tipo: "salida", cantidad: c });
                             }}
                           >
-                            <ArrowDownCircle className="h-4 w-4 text-destructive" />
-                          </Button>
+                            <PackageMinus className="h-[18px] w-[18px]" />
+                          </IconAction>
+                          <IconAction
+                            title="Editar producto"
+                            className="text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                            onClick={() => setEditando(p)}
+                          >
+                            <SquarePen className="h-[18px] w-[18px]" />
+                          </IconAction>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -503,14 +536,15 @@ function VenderProducto({
   const [cantidad, setCantidad] = useState("1");
   const [metodo, setMetodo] = useState<MetodoPago | "">("");
 
+  const precio = Number(producto.precio) || 0;
+  const stock = Number(producto.stock_actual) || 0;
   const cant = Number(cantidad);
-  const total = (Number.isFinite(cant) && cant > 0 ? cant : 0) * Number(producto.precio);
+  const total = (Number.isFinite(cant) && cant > 0 ? cant : 0) * precio;
 
   const vender = useMutation({
     mutationFn: async () => {
       if (!Number.isFinite(cant) || cant <= 0) throw new Error("Cantidad inválida");
-      if (cant > Number(producto.stock_actual))
-        throw new Error("No hay suficiente stock");
+      if (cant > stock) throw new Error("No hay suficiente stock");
       if (!metodo) throw new Error("Selecciona el método de pago");
       const { error } = await supabase.rpc("vender_producto", {
         p_producto_id: producto.id,
@@ -536,8 +570,8 @@ function VenderProducto({
       </DialogHeader>
       <div className="space-y-4">
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>Precio unitario: {formatCOP(producto.precio)}</span>
-          <span>Stock: {producto.stock_actual}</span>
+          <span>Precio unitario: {formatCOP(precio)}</span>
+          <span>Stock: {stock}</span>
         </div>
         <div className="space-y-2">
           <Label htmlFor="vp-cant">Cantidad</Label>

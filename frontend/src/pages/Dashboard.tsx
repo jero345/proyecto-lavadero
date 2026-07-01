@@ -25,7 +25,6 @@ import { formatCOP, formatFechaHora } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
 import { imprimirReciboOrden } from "@/lib/recibo";
 import { CLASE_ESTADO, LABEL_ESTADO, METODOS_PAGO } from "@/lib/dominio";
-import { useAuth } from "@/hooks/useAuth";
 import { useRealtimeOrdenes } from "@/hooks/useRealtimeOrdenes";
 import type { EstadoOrden, MetodoPago, Orden } from "@/types/database.types";
 
@@ -42,7 +41,6 @@ function inicioDeHoyISO() {
 }
 
 export default function Dashboard() {
-  const { isStaff } = useAuth();
   const queryClient = useQueryClient();
   useRealtimeOrdenes();
   const [cobrarDe, setCobrarDe] = useState<Orden | null>(null);
@@ -112,7 +110,6 @@ export default function Dashboard() {
   // Solo es relevante para staff (cobrar toca caja).
   const { data: sinCobrar = [] } = useQuery({
     queryKey: ["dashboard", "sin-cobrar"],
-    enabled: isStaff,
     queryFn: async (): Promise<Orden[]> => {
       const { data, error } = await supabase
         .from("ordenes")
@@ -158,19 +155,20 @@ export default function Dashboard() {
           titulo="Vehículos en proceso"
           valor={activas.length.toString()}
           icon={<Car className="h-5 w-5" />}
+          color="bg-blue-100 text-blue-600"
         />
         <KpiCard
           titulo="Órdenes de hoy"
           valor={hoy.length.toString()}
           icon={<Clock className="h-5 w-5" />}
+          color="bg-violet-100 text-violet-600"
         />
-        {isStaff && (
-          <KpiCard
-            titulo="Ingresos de hoy"
-            valor={formatCOP(ingresosHoy)}
-            icon={<DollarSign className="h-5 w-5" />}
-          />
-        )}
+        <KpiCard
+          titulo="Ingresos de hoy"
+          valor={formatCOP(ingresosHoy)}
+          icon={<DollarSign className="h-5 w-5" />}
+          color="bg-emerald-100 text-emerald-600"
+        />
       </div>
 
       {/* Vehículos en proceso (realtime) */}
@@ -227,28 +225,22 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                    {isStaff ? (
-                      <span className="font-semibold">{formatCOP(o.total)}</span>
-                    ) : (
-                      <span />
-                    )}
+                    <span className="font-semibold">{formatCOP(o.total)}</span>
                     <div className="flex flex-wrap items-center justify-end gap-2">
-                      {isStaff && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={imprimiendoId === o.id}
-                          title="Imprimir recibo"
-                          onClick={() => void imprimirRecibo(o)}
-                        >
-                          {imprimiendoId === o.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Printer className="h-3.5 w-3.5" />
-                          )}
-                          Recibo
-                        </Button>
-                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={imprimiendoId === o.id}
+                        title="Imprimir recibo"
+                        onClick={() => void imprimirRecibo(o)}
+                      >
+                        {imprimiendoId === o.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Printer className="h-3.5 w-3.5" />
+                        )}
+                        Recibo
+                      </Button>
                       {o.metodo_pago == null && (
                         <Button
                           size="sm"
@@ -292,7 +284,7 @@ export default function Dashboard() {
         </CardContent>
       </Card>
 
-      {isStaff && sinCobrar.length > 0 && (
+      {sinCobrar.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Entregadas sin cobrar</CardTitle>
@@ -410,10 +402,12 @@ function KpiCard({
   titulo,
   valor,
   icon,
+  color = "bg-primary/10 text-primary",
 }: {
   titulo: string;
   valor: string;
   icon: React.ReactNode;
+  color?: string;
 }) {
   return (
     <Card>
@@ -422,7 +416,9 @@ function KpiCard({
           <p className="text-sm text-muted-foreground">{titulo}</p>
           <p className="mt-1 text-2xl font-bold">{valor}</p>
         </div>
-        <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
+        <span
+          className={`flex h-12 w-12 items-center justify-center rounded-2xl ${color}`}
+        >
           {icon}
         </span>
       </CardContent>
