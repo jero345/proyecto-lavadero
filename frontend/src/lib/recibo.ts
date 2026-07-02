@@ -32,7 +32,7 @@ function construirHTML(opts: {
   items: ReciboItem[];
   atendio?: string | null;
 }): string {
-  const { orden, items, atendio } = opts;
+  const { orden, items } = opts;
   const metodo: MetodoPago | null = orden.metodo_pago;
 
   const filas = items
@@ -80,7 +80,6 @@ function construirHTML(opts: {
     <div class="center small">N° ${esc(numeroRecibo(orden))}</div>
     <div class="small">${esc(formatFechaHora(orden.created_at))}</div>
     <div class="small">Placa: ${esc(orden.placa || "—")}</div>
-    ${atendio ? `<div class="small">Atendió: ${esc(atendio)}</div>` : ""}
 
     <div class="sep"></div>
     <table>${filas}</table>

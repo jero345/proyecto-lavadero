@@ -39,12 +39,12 @@ function App() {
             <Route path="inventario" element={<Inventario />} />
             <Route path="clientes" element={<Clientes />} />
             <Route path="servicios" element={<Servicios />} />
+            <Route path="nomina" element={<Nomina />} />
 
             {/* Solo staff (admin / super_admin) */}
             <Route element={<RoleRoute roles={["admin", "super_admin"]} />}>
               <Route path="caja" element={<Caja />} />
               <Route path="empleados" element={<Empleados />} />
-              <Route path="nomina" element={<Nomina />} />
             </Route>
           </Route>
         </Route>

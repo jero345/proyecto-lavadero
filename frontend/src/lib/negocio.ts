@@ -2,7 +2,7 @@
 // 👉 EDITA estos valores con la información real del lavadero.
 export const NEGOCIO = {
   nombre: "TODO EN UNO",
-  eslogan: "Car Wash Services",
+  eslogan: "Automotriz",
   nit: "15442040-6",
   direccion: "Cll 28 Cr 44-31, frente a la pista de bicicros",
   telefono: "314 820 2762",
