@@ -3,9 +3,9 @@
 export const NEGOCIO = {
   nombre: "TODO EN UNO",
   eslogan: "Car Wash Services",
-  nit: "000.000.000-0",
-  direccion: "Cra 0 #0-00, Garzón (Huila)",
-  telefono: "300 000 0000",
+  nit: "15442040-6",
+  direccion: "Cll 28 Cr 44-31, frente a la pista de bicicros",
+  telefono: "314 820 2762",
   // Mensaje que aparece al pie del recibo.
   pie: "¡Gracias por preferirnos!",
 };

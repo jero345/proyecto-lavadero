@@ -106,9 +106,9 @@ export default function POS() {
       // (pendiente de cobro) y se cobra luego desde el Dashboard.
       const cobrada = Boolean(metodoPago);
 
-      // Total final (override): solo si el staff lo editó. El servidor lo valida.
+      // Total final (override): si se editó manualmente. El servidor lo valida.
       let overrideTotal: number | null = null;
-      if (isStaff && totalManual !== null && totalManual.trim() !== "") {
+      if (totalManual !== null && totalManual.trim() !== "") {
         const n = Number(totalManual);
         if (!Number.isFinite(n) || n < 0) throw new Error("El total ingresado no es válido");
         overrideTotal = n;
@@ -355,44 +355,38 @@ export default function POS() {
               <span>Subtotal {formatCOP(total)}</span>
             </div>
 
-            {isStaff ? (
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="total-final">Total a cobrar</Label>
-                  {totalManual !== null && (
-                    <button
-                      type="button"
-                      className="text-xs text-primary hover:underline"
-                      onClick={() => setTotalManual(null)}
-                    >
-                      Usar subtotal
-                    </button>
-                  )}
-                </div>
-                <div className="relative">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lg font-bold text-muted-foreground">
-                    $
-                  </span>
-                  <Input
-                    id="total-final"
-                    type="number"
-                    min={0}
-                    value={totalManual ?? String(total)}
-                    onChange={(e) => setTotalManual(e.target.value)}
-                    className="h-12 pl-7 text-right text-2xl font-bold"
-                  />
-                </div>
-                {totalManual !== null && Number(totalManual) !== total && (
-                  <p className="text-xs text-amber-600">
-                    Total ajustado (subtotal del catálogo: {formatCOP(total)}).
-                  </p>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="total-final">Total a cobrar</Label>
+                {totalManual !== null && (
+                  <button
+                    type="button"
+                    className="text-xs text-primary hover:underline"
+                    onClick={() => setTotalManual(null)}
+                  >
+                    Usar subtotal
+                  </button>
                 )}
               </div>
-            ) : (
-              <div className="flex items-center justify-end">
-                <span className="text-2xl font-bold">{formatCOP(total)}</span>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-lg font-bold text-muted-foreground">
+                  $
+                </span>
+                <Input
+                  id="total-final"
+                  type="number"
+                  min={0}
+                  value={totalManual ?? String(total)}
+                  onChange={(e) => setTotalManual(e.target.value)}
+                  className="h-12 pl-7 text-right text-2xl font-bold"
+                />
               </div>
-            )}
+              {totalManual !== null && Number(totalManual) !== total && (
+                <p className="text-xs text-amber-600">
+                  Total ajustado (subtotal del catálogo: {formatCOP(total)}).
+                </p>
+              )}
+            </div>
 
             <Button
               className="w-full"
