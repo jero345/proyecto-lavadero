@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CobrarOrdenDialog } from "@/components/CobrarOrdenDialog";
+import { EliminarOrdenButton } from "@/components/EliminarOrdenButton";
 import { formatCOP, formatFechaHora } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
 import { imprimirReciboDeOrden } from "@/lib/recibo-orden";
@@ -232,6 +233,7 @@ export default function Ordenes() {
                               <ArrowRight className="h-3.5 w-3.5" />
                             </Button>
                           )}
+                          <EliminarOrdenButton orden={o} />
                         </div>
                       </TableCell>
                     </TableRow>

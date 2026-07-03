@@ -12,6 +12,7 @@ import { formatCOP, formatFechaHora } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
 import { imprimirReciboDeOrden } from "@/lib/recibo-orden";
 import { CobrarOrdenDialog } from "@/components/CobrarOrdenDialog";
+import { EliminarOrdenButton } from "@/components/EliminarOrdenButton";
 import { CLASE_ESTADO, LABEL_ESTADO } from "@/lib/dominio";
 import { useOrdenesSinCobrar } from "@/hooks/queries";
 import { useRealtimeOrdenes } from "@/hooks/useRealtimeOrdenes";
@@ -286,6 +287,7 @@ export default function Dashboard() {
                           )}
                         </Button>
                       )}
+                      <EliminarOrdenButton orden={o} />
                     </div>
                   </div>
                 </div>
