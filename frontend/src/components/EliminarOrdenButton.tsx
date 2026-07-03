@@ -16,12 +16,12 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/hooks/useAuth";
 import type { Orden } from "@/types/database.types";
 
 /**
- * Botón para eliminar una orden equivocada, con confirmación. Un empleado solo
- * puede borrar órdenes NO cobradas (el servidor lo reafirma en `eliminar_orden`).
+ * Botón para eliminar una orden equivocada, con confirmación. Disponible para
+ * cualquier usuario y en cualquier orden (el servidor solo impide borrar las
+ * que ya están dentro de un cierre de caja).
  */
 export function EliminarOrdenButton({
   orden,
@@ -30,12 +30,8 @@ export function EliminarOrdenButton({
   orden: Orden;
   showLabel?: boolean;
 }) {
-  const { isStaff } = useAuth();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-
-  // Un empleado no puede eliminar una orden ya cobrada (revertir caja es de admin).
-  if (!isStaff && orden.metodo_pago != null) return null;
 
   const eliminar = useMutation({
     mutationFn: async () => {
