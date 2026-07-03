@@ -102,11 +102,12 @@ function construirHTML(opts: {
 function imprimirHTML(html: string) {
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");
+  // Fuera de pantalla pero con ancho real (80mm) para medir bien el alto.
   iframe.style.position = "fixed";
-  iframe.style.right = "0";
-  iframe.style.bottom = "0";
-  iframe.style.width = "0";
-  iframe.style.height = "0";
+  iframe.style.left = "-9999px";
+  iframe.style.top = "0";
+  iframe.style.width = "80mm";
+  iframe.style.height = "auto";
   iframe.style.border = "0";
   document.body.appendChild(iframe);
 
@@ -128,6 +129,16 @@ function imprimirHTML(html: string) {
   };
 
   const lanzar = () => {
+    // Fija el alto de página al alto real del recibo para que la impresora
+    // térmica no avance papel de más (96px CSS = 25.4mm). +3mm de respiro.
+    const el = doc.querySelector(".recibo");
+    const alturaPx = el ? el.getBoundingClientRect().height : doc.body.scrollHeight;
+    if (alturaPx > 20) {
+      const alturaMm = Math.ceil((alturaPx * 25.4) / 96) + 3;
+      const style = doc.createElement("style");
+      style.textContent = `@page { size: 80mm ${alturaMm}mm; margin: 0; }`;
+      doc.head.appendChild(style);
+    }
     win.focus();
     win.onafterprint = limpiar;
     win.print();

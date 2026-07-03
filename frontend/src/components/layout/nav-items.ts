@@ -1,6 +1,7 @@
 import {
   LayoutDashboard,
   PlusCircle,
+  ClipboardList,
   Wallet,
   Boxes,
   Users,
@@ -28,6 +29,7 @@ const STAFF: Rol[] = ["super_admin", "admin"];
 export const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: TODOS, color: "bg-blue-100 text-blue-600" },
   { to: "/pos", label: "Nueva Orden", icon: PlusCircle, roles: TODOS, color: "bg-indigo-100 text-indigo-600" },
+  { to: "/ordenes", label: "Órdenes", icon: ClipboardList, roles: TODOS, color: "bg-sky-100 text-sky-600" },
   { to: "/caja", label: "Caja", icon: Wallet, roles: STAFF, color: "bg-emerald-100 text-emerald-600" },
   { to: "/empleados", label: "Empleados", icon: Users, roles: STAFF, color: "bg-violet-100 text-violet-600" },
   { to: "/nomina", label: "Nómina", icon: HandCoins, roles: TODOS, color: "bg-amber-100 text-amber-600" },

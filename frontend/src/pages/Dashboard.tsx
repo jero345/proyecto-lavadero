@@ -1,32 +1,21 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Car, Clock, DollarSign, ArrowRight, Loader2, Printer } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Car, Clock, DollarSign, ArrowRight, Loader2, Printer, BellRing } from "lucide-react";
 import { toast } from "sonner";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { formatCOP, formatFechaHora } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
-import { imprimirReciboOrden } from "@/lib/recibo";
-import { CLASE_ESTADO, LABEL_ESTADO, METODOS_PAGO } from "@/lib/dominio";
+import { imprimirReciboDeOrden } from "@/lib/recibo-orden";
+import { CobrarOrdenDialog } from "@/components/CobrarOrdenDialog";
+import { CLASE_ESTADO, LABEL_ESTADO } from "@/lib/dominio";
+import { useOrdenesSinCobrar } from "@/hooks/queries";
 import { useRealtimeOrdenes } from "@/hooks/useRealtimeOrdenes";
-import type { EstadoOrden, MetodoPago, Orden } from "@/types/database.types";
+import type { EstadoOrden, Orden } from "@/types/database.types";
 
 const SIGUIENTE_ESTADO: Record<EstadoOrden, EstadoOrden | null> = {
   en_proceso: "completado",
@@ -50,26 +39,7 @@ export default function Dashboard() {
   async function imprimirRecibo(orden: Orden) {
     setImprimiendoId(orden.id);
     try {
-      const { data, error } = await supabase
-        .from("orden_items")
-        .select("precio, servicios(nombre), empleados(nombre)")
-        .eq("orden_id", orden.id)
-        .returns<
-          {
-            precio: number;
-            servicios: { nombre: string } | null;
-            empleados: { nombre: string } | null;
-          }[]
-        >();
-      if (error) throw error;
-
-      const items = (data ?? []).map((r) => ({
-        nombre: r.servicios?.nombre ?? "Servicio",
-        precio: Number(r.precio),
-      }));
-      const atendio = data?.find((r) => r.empleados?.nombre)?.empleados?.nombre ?? null;
-
-      imprimirReciboOrden({ orden, items, atendio });
+      await imprimirReciboDeOrden(orden);
     } catch (e) {
       toast.error("No se pudo generar el recibo", {
         description: e instanceof Error ? e.message : "",
@@ -132,6 +102,24 @@ export default function Dashboard() {
     [hoy],
   );
 
+  // Recordatorio de órdenes sin cobrar (en cualquier estado).
+  const { data: pendientesCobro = [] } = useOrdenesSinCobrar();
+  const totalPendiente = useMemo(
+    () => pendientesCobro.reduce((acc, o) => acc + Number(o.total), 0),
+    [pendientesCobro],
+  );
+
+  // Aviso emergente al entrar, una vez por montaje, si hay pendientes de cobro.
+  const yaAviso = useRef(false);
+  useEffect(() => {
+    if (yaAviso.current || pendientesCobro.length === 0) return;
+    yaAviso.current = true;
+    toast.warning(
+      `Tienes ${pendientesCobro.length} orden${pendientesCobro.length === 1 ? "" : "es"} sin cobrar`,
+      { description: `${formatCOP(totalPendiente)} pendiente de cobro` },
+    );
+  }, [pendientesCobro.length, totalPendiente]);
+
   const avanzarEstado = useMutation({
     mutationFn: async ({ id }: { id: string; estado: EstadoOrden }) => {
       // La función del servidor calcula el siguiente estado y solo toca esa columna.
@@ -149,6 +137,29 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Recordatorio: órdenes sin cobrar */}
+      {pendientesCobro.length > 0 && (
+        <Link
+          to="/ordenes"
+          className="flex items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 transition-colors hover:bg-amber-100"
+        >
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-200 text-amber-700">
+              <BellRing className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="font-semibold">
+                {pendientesCobro.length} orden{pendientesCobro.length === 1 ? "" : "es"} sin cobrar
+              </p>
+              <p className="text-sm text-amber-800">
+                {formatCOP(totalPendiente)} pendiente de cobro · toca para revisar
+              </p>
+            </div>
+          </div>
+          <ArrowRight className="h-5 w-5 shrink-0" />
+        </Link>
+      )}
+
       {/* KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard
@@ -324,77 +335,6 @@ export default function Dashboard() {
         />
       )}
     </div>
-  );
-}
-
-function CobrarOrdenDialog({
-  orden,
-  onClose,
-}: {
-  orden: Orden;
-  onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const [metodo, setMetodo] = useState<MetodoPago | "">("");
-
-  const cobrar = useMutation({
-    mutationFn: async () => {
-      if (!metodo) throw new Error("Selecciona el método de pago");
-      const { error } = await supabase.rpc("cobrar_orden", {
-        p_orden_id: orden.id,
-        p_metodo_pago: metodo,
-      });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Orden cobrada", {
-        description: `Total ${formatCOP(orden.total)}`,
-      });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["caja"] });
-      onClose();
-    },
-    onError: (e: unknown) =>
-      toast.error("No se pudo cobrar", {
-        description: e instanceof Error ? e.message : "",
-      }),
-  });
-
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Cobrar orden {orden.placa || ""}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-4">
-          <div className="flex items-center justify-between rounded-md bg-muted p-3">
-            <span className="text-sm text-muted-foreground">Total a cobrar</span>
-            <span className="text-xl font-bold">{formatCOP(orden.total)}</span>
-          </div>
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Método de pago</label>
-            <Select value={metodo} onValueChange={(v) => setMetodo(v as MetodoPago)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecciona método" />
-              </SelectTrigger>
-              <SelectContent>
-                {METODOS_PAGO.map((m) => (
-                  <SelectItem key={m.value} value={m.value}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <DialogFooter>
-          <Button onClick={() => cobrar.mutate()} disabled={cobrar.isPending}>
-            {cobrar.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Confirmar cobro
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 

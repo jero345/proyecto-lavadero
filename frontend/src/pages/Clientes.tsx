@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { History, Loader2, Plus } from "lucide-react";
+import { History, Loader2, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -34,12 +34,15 @@ export default function Clientes() {
   const queryClient = useQueryClient();
   const { data: clientes = [] } = useClientes();
   const [historialDe, setHistorialDe] = useState<Cliente | null>(null);
+  const [editandoDe, setEditandoDe] = useState<Cliente | null>(null);
+
+  const invalidar = () => queryClient.invalidateQueries({ queryKey: ["clientes"] });
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Clientes</h2>
-        <NuevoCliente onCreado={() => queryClient.invalidateQueries({ queryKey: ["clientes"] })} />
+        <NuevoCliente onCreado={invalidar} />
       </div>
 
       <Card>
@@ -54,7 +57,7 @@ export default function Clientes() {
                 <TableRow>
                   <TableHead>Nombre</TableHead>
                   <TableHead>Teléfono</TableHead>
-                  <TableHead className="text-right">Historial</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -63,10 +66,16 @@ export default function Clientes() {
                     <TableCell className="font-medium">{c.nombre}</TableCell>
                     <TableCell className="text-muted-foreground">{c.telefono || "—"}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => setHistorialDe(c)}>
-                        <History className="h-4 w-4" />
-                        Ver
-                      </Button>
+                      <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => setEditandoDe(c)}>
+                          <Pencil className="h-4 w-4" />
+                          Editar
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => setHistorialDe(c)}>
+                          <History className="h-4 w-4" />
+                          Historial
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -76,8 +85,74 @@ export default function Clientes() {
         </CardContent>
       </Card>
 
+      <EditarCliente
+        key={editandoDe?.id}
+        cliente={editandoDe}
+        onClose={() => setEditandoDe(null)}
+        onGuardado={invalidar}
+      />
       <HistorialCliente cliente={historialDe} onClose={() => setHistorialDe(null)} />
     </div>
+  );
+}
+
+function EditarCliente({
+  cliente,
+  onClose,
+  onGuardado,
+}: {
+  cliente: Cliente | null;
+  onClose: () => void;
+  onGuardado: () => void;
+}) {
+  const [nombre, setNombre] = useState(cliente?.nombre ?? "");
+  const [telefono, setTelefono] = useState(cliente?.telefono ?? "");
+
+  const guardar = useMutation({
+    mutationFn: async () => {
+      if (!cliente) return;
+      if (!nombre.trim()) throw new Error("Nombre requerido");
+      const { error } = await supabase
+        .from("clientes")
+        .update({ nombre: nombre.trim(), telefono: telefono.trim() || null })
+        .eq("id", cliente.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Cliente actualizado");
+      onGuardado();
+      onClose();
+    },
+    onError: (e: unknown) =>
+      toast.error("No se pudo actualizar", {
+        description: e instanceof Error ? e.message : "",
+      }),
+  });
+
+  return (
+    <Dialog open={Boolean(cliente)} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Editar cliente</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="ec-nombre">Nombre</Label>
+            <Input id="ec-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="ec-tel">Teléfono</Label>
+            <Input id="ec-tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button onClick={() => guardar.mutate()} disabled={guardar.isPending}>
+            {guardar.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Guardar cambios
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

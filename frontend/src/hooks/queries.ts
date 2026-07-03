@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { supabase } from "@/lib/supabase";
-import type { Cliente, Empleado, Servicio } from "@/types/database.types";
+import type { Cliente, Empleado, Orden, Servicio } from "@/types/database.types";
 
 /** Empleados (roster) activos para asignar en órdenes/nómina. */
 export function useEmpleados() {
@@ -42,6 +42,40 @@ export function useClientes() {
         .from("clientes")
         .select("*")
         .order("nombre");
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+/** Todas las órdenes (para la sección Órdenes). RLS filtra según el rol. */
+export function useOrdenes() {
+  return useQuery({
+    queryKey: ["ordenes", "todas"],
+    queryFn: async (): Promise<Orden[]> => {
+      const { data, error } = await supabase
+        .from("ordenes")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
+}
+
+/**
+ * Órdenes pendientes de cobro (metodo_pago null), en cualquier estado.
+ * Base de los "recordatorios de sin cobrar".
+ */
+export function useOrdenesSinCobrar() {
+  return useQuery({
+    queryKey: ["ordenes", "sin-cobrar"],
+    queryFn: async (): Promise<Orden[]> => {
+      const { data, error } = await supabase
+        .from("ordenes")
+        .select("*")
+        .is("metodo_pago", null)
+        .order("created_at", { ascending: false });
       if (error) throw error;
       return data;
     },
