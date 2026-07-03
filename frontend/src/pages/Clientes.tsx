@@ -112,11 +112,19 @@ function EditarCliente({
     mutationFn: async () => {
       if (!cliente) return;
       if (!nombre.trim()) throw new Error("Nombre requerido");
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("clientes")
         .update({ nombre: nombre.trim(), telefono: telefono.trim() || null })
-        .eq("id", cliente.id);
+        .eq("id", cliente.id)
+        .select();
       if (error) throw error;
+      // Con RLS, un update sin permiso afecta 0 filas SIN lanzar error.
+      // Lo detectamos para no mostrar un falso "guardado".
+      if (!data || data.length === 0) {
+        throw new Error(
+          "No se pudo editar (sin permiso). Falta aplicar la migración 0009 en Supabase.",
+        );
+      }
     },
     onSuccess: () => {
       toast.success("Cliente actualizado");
