@@ -92,6 +92,24 @@ export default function POS() {
     if (cliente?.placa) setPlaca(cliente.placa.toUpperCase());
   }
 
+  // Al escribir la placa, si hay un cliente guardado con esa placa lo
+  // autoselecciona. Si se borra/cambia la placa, suelta el cliente autollenado.
+  function cambiarPlaca(valor: string) {
+    const nuevaPlaca = valor.toUpperCase();
+    setPlaca(nuevaPlaca);
+    const normal = nuevaPlaca.replace(/\s+/g, "");
+    const match = normal
+      ? clientes.find((c) => c.placa?.toUpperCase().replace(/\s+/g, "") === normal)
+      : undefined;
+    if (match) {
+      if (match.id !== clienteId) setClienteId(match.id);
+    } else if (clienteId) {
+      // El cliente actual ya no coincide con la placa escrita: lo soltamos.
+      const actual = clientes.find((c) => c.id === clienteId);
+      if (actual?.placa) setClienteId("");
+    }
+  }
+
   function reset() {
     setTipo(null);
     setSeleccion(new Set());
@@ -270,7 +288,7 @@ export default function POS() {
                 id="placa"
                 placeholder="ABC123"
                 value={placa}
-                onChange={(e) => setPlaca(e.target.value.toUpperCase())}
+                onChange={(e) => cambiarPlaca(e.target.value)}
                 className="uppercase"
               />
             </div>
