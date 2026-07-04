@@ -30,6 +30,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { useClientes, useEmpleados, useServicios } from "@/hooks/queries";
 import type { Cliente, MetodoPago, TipoVehiculo } from "@/types/database.types";
 
+/** Normaliza una placa para comparar: mayúsculas, sin espacios ni guiones. */
+function normalizarPlaca(placa: string): string {
+  return placa.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 export default function POS() {
   const { profile, isStaff } = useAuth();
   const queryClient = useQueryClient();
@@ -94,12 +99,13 @@ export default function POS() {
 
   // Al escribir la placa, si hay un cliente guardado con esa placa lo
   // autoselecciona. Si se borra/cambia la placa, suelta el cliente autollenado.
+  // Compara sin espacios ni guiones: "KHE-249" coincide con "KHE249".
   function cambiarPlaca(valor: string) {
     const nuevaPlaca = valor.toUpperCase();
     setPlaca(nuevaPlaca);
-    const normal = nuevaPlaca.replace(/\s+/g, "");
+    const normal = normalizarPlaca(nuevaPlaca);
     const match = normal
-      ? clientes.find((c) => c.placa?.toUpperCase().replace(/\s+/g, "") === normal)
+      ? clientes.find((c) => normalizarPlaca(c.placa ?? "") === normal)
       : undefined;
     if (match) {
       if (match.id !== clienteId) setClienteId(match.id);
