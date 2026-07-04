@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Loader2,
+  Lock,
   PackageMinus,
   PackagePlus,
   Plus,
@@ -41,12 +42,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { formatCOP, formatFechaHora } from "@/lib/format";
 import { METODOS_PAGO, LABEL_METODO_PAGO } from "@/lib/dominio";
 import { imprimirReciboVenta } from "@/lib/recibo";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import type {
+  CajaMovimiento,
+  CierreCaja,
   MetodoPago,
   Producto,
   TipoMovInventario,
@@ -161,6 +175,8 @@ export default function Inventario() {
 
   return (
     <div className="space-y-6">
+      <CajaInventario />
+
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Productos</h2>
         <NuevoProducto onCreado={invalidar} />
@@ -666,5 +682,141 @@ function VenderProducto({
         </Button>
       </DialogFooter>
     </DialogContent>
+  );
+}
+
+/**
+ * Caja de inventario: acumula el dinero de las ventas de productos, separada de
+ * la caja principal. Tiene su propio cierre (independiente).
+ */
+function CajaInventario() {
+  const queryClient = useQueryClient();
+
+  const { data: abiertos = [] } = useQuery({
+    queryKey: ["caja", "inventario", "abiertos"],
+    queryFn: async (): Promise<CajaMovimiento[]> => {
+      const { data, error } = await supabase
+        .from("caja_movimientos")
+        .select("*")
+        .eq("caja", "inventario")
+        .is("cierre_id", null)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const { data: cierres = [] } = useQuery({
+    queryKey: ["caja", "inventario", "cierres"],
+    queryFn: async (): Promise<CierreCaja[]> => {
+      const { data, error } = await supabase
+        .from("cierres_caja")
+        .select("*")
+        .eq("caja", "inventario")
+        .order("fecha_cierre", { ascending: false })
+        .limit(5);
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const totales = useMemo(() => {
+    const t = { efectivo: 0, qr: 0, transferencia: 0, total: 0 };
+    for (const m of abiertos) {
+      if (m.tipo === "ingreso" && m.metodo_pago) t[m.metodo_pago] += Number(m.monto);
+    }
+    t.total = t.efectivo + t.qr + t.transferencia;
+    return t;
+  }, [abiertos]);
+
+  const cerrar = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.rpc("cerrar_caja", { p_caja: "inventario" });
+      if (error) throw error;
+      return data as CierreCaja;
+    },
+    onSuccess: (c) => {
+      toast.success("Caja de inventario cerrada", {
+        description: `Total ${formatCOP(c.total_general)}`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["caja"] });
+    },
+    onError: (e: unknown) =>
+      toast.error("No se pudo cerrar", {
+        description: e instanceof Error ? e.message : "",
+      }),
+  });
+
+  return (
+    <Card>
+      <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <CardTitle className="text-base">Caja de inventario</CardTitle>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={abiertos.length === 0 || cerrar.isPending}
+            >
+              {cerrar.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Lock className="h-4 w-4" />
+              )}
+              Cerrar caja de inventario
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>¿Cerrar la caja de inventario?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Se consolidarán {abiertos.length} movimiento(s) por un total de{" "}
+                <strong>{formatCOP(totales.total)}</strong>. Es independiente de la caja
+                principal.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={() => cerrar.mutate()}>
+                Sí, cerrar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <TileCaja titulo="Efectivo" valor={totales.efectivo} />
+          <TileCaja titulo="QR" valor={totales.qr} />
+          <TileCaja titulo="Transferencia" valor={totales.transferencia} />
+          <TileCaja titulo="Total sin cerrar" valor={totales.total} destacado />
+        </div>
+        {cierres.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Último cierre: {formatFechaHora(cierres[0].fecha_cierre)} ·{" "}
+            {formatCOP(cierres[0].total_general)}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TileCaja({
+  titulo,
+  valor,
+  destacado,
+}: {
+  titulo: string;
+  valor: number;
+  destacado?: boolean;
+}) {
+  return (
+    <div className={cn("rounded-lg border p-3", destacado && "border-primary")}>
+      <p className="text-xs text-muted-foreground">{titulo}</p>
+      <p className={cn("mt-1 text-lg font-bold", destacado && "text-primary")}>
+        {formatCOP(valor)}
+      </p>
+    </div>
   );
 }

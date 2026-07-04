@@ -23,16 +23,27 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatCOP, formatFecha } from "@/lib/format";
+import { METODOS_PAGO } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
 import { useEmpleados } from "@/hooks/queries";
-import type { NominaLiquidacion } from "@/types/database.types";
+import type { MetodoPago, NominaLiquidacion } from "@/types/database.types";
 
+/**
+ * Fecha local en formato YYYY-MM-DD. NO usar toISOString(): convierte a UTC y en
+ * Colombia (UTC-5) devuelve el día siguiente en la tarde/noche.
+ */
+function fechaLocalISO(d: Date) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 function primerDiaDelMes() {
   const d = new Date();
-  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  return fechaLocalISO(new Date(d.getFullYear(), d.getMonth(), 1));
 }
 function hoyISO() {
-  return new Date().toISOString().slice(0, 10);
+  return fechaLocalISO(new Date());
 }
 
 export default function Nomina() {
@@ -42,6 +53,7 @@ export default function Nomina() {
   const [empleadoId, setEmpleadoId] = useState("");
   const [inicio, setInicio] = useState(primerDiaDelMes());
   const [fin, setFin] = useState(hoyISO());
+  const [metodo, setMetodo] = useState<MetodoPago>("efectivo");
 
   const nombrePorId = useMemo(() => {
     const m = new Map<string, string>();
@@ -69,15 +81,21 @@ export default function Nomina() {
         p_empleado_id: empleadoId,
         p_fecha_inicio: inicio,
         p_fecha_fin: fin,
+        p_metodo_pago: metodo,
       });
       if (error) throw error;
       return data as NominaLiquidacion;
     },
     onSuccess: (l) => {
       toast.success("Liquidación generada", {
-        description: `${l.total_servicios} servicios · A pagar ${formatCOP(l.total_pagar)}`,
+        description:
+          l.total_pagar > 0
+            ? `A pagar ${formatCOP(l.total_pagar)} · egreso registrado en caja`
+            : `${l.total_servicios} servicios · sin monto a pagar`,
       });
+      // La liquidación mete un egreso en la caja principal.
       queryClient.invalidateQueries({ queryKey: ["nomina"] });
+      queryClient.invalidateQueries({ queryKey: ["caja"] });
     },
     onError: (e: unknown) =>
       toast.error("No se pudo liquidar", {
@@ -92,7 +110,7 @@ export default function Nomina() {
           <CardTitle className="text-base">Liquidar nómina</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
             <div className="space-y-2">
               <Label>Empleado</Label>
               <Select value={empleadoId} onValueChange={setEmpleadoId}>
@@ -126,6 +144,21 @@ export default function Nomina() {
                 onChange={(e) => setFin(e.target.value)}
               />
             </div>
+            <div className="space-y-2">
+              <Label>Pago con</Label>
+              <Select value={metodo} onValueChange={(v) => setMetodo(v as MetodoPago)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {METODOS_PAGO.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <Button onClick={() => liquidar.mutate()} disabled={liquidar.isPending}>
               {liquidar.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -135,6 +168,10 @@ export default function Nomina() {
               Liquidar
             </Button>
           </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Al liquidar, el monto a pagar se registra como <strong>egreso</strong> en la
+            caja principal con el método elegido.
+          </p>
         </CardContent>
       </Card>
 

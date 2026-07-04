@@ -8,6 +8,7 @@ export type EstadoOrden = "en_proceso" | "completado" | "entregado";
 export type MetodoPago = "efectivo" | "qr" | "transferencia";
 export type TipoMovCaja = "ingreso" | "egreso";
 export type TipoMovInventario = "entrada" | "salida";
+export type CajaTipo = "principal" | "inventario";
 
 export type Database = {
   public: {
@@ -143,6 +144,7 @@ export type Database = {
           concepto: string | null;
           metodo_pago: MetodoPago | null;
           monto: number;
+          caja: CajaTipo;
           orden_id: string | null;
           cierre_id: string | null;
           created_by: string;
@@ -154,6 +156,7 @@ export type Database = {
           concepto?: string | null;
           metodo_pago?: MetodoPago | null;
           monto: number;
+          caja?: CajaTipo;
           orden_id?: string | null;
           cierre_id?: string | null;
           created_by: string;
@@ -172,6 +175,7 @@ export type Database = {
           total_transferencia: number;
           total_egresos: number;
           total_general: number;
+          caja: CajaTipo;
           created_by: string;
         };
         Insert: {
@@ -183,6 +187,7 @@ export type Database = {
           total_transferencia?: number;
           total_egresos?: number;
           total_general?: number;
+          caja?: CajaTipo;
           created_by: string;
         };
         Update: Partial<Database["public"]["Tables"]["cierres_caja"]["Insert"]>;
@@ -305,11 +310,16 @@ export type Database = {
         Returns: Database["public"]["Tables"]["ordenes"]["Row"];
       };
       cerrar_caja: {
-        Args: Record<string, never>;
+        Args: { p_caja?: CajaTipo };
         Returns: Database["public"]["Tables"]["cierres_caja"]["Row"];
       };
       liquidar_nomina: {
-        Args: { p_empleado_id: string; p_fecha_inicio: string; p_fecha_fin: string };
+        Args: {
+          p_empleado_id: string;
+          p_fecha_inicio: string;
+          p_fecha_fin: string;
+          p_metodo_pago?: MetodoPago;
+        };
         Returns: Database["public"]["Tables"]["nomina_liquidaciones"]["Row"];
       };
       avanzar_estado_orden: {

@@ -53,11 +53,12 @@ export default function Caja() {
   const queryClient = useQueryClient();
 
   const { data: abiertos = [] } = useQuery({
-    queryKey: ["caja", "abiertos"],
+    queryKey: ["caja", "abiertos", "principal"],
     queryFn: async (): Promise<CajaMovimiento[]> => {
       const { data, error } = await supabase
         .from("caja_movimientos")
         .select("*")
+        .eq("caja", "principal")
         .is("cierre_id", null)
         .order("created_at", { ascending: false });
       if (error) throw error;
@@ -66,11 +67,12 @@ export default function Caja() {
   });
 
   const { data: cierres = [] } = useQuery({
-    queryKey: ["caja", "cierres"],
+    queryKey: ["caja", "cierres", "principal"],
     queryFn: async (): Promise<CierreCaja[]> => {
       const { data, error } = await supabase
         .from("cierres_caja")
         .select("*")
+        .eq("caja", "principal")
         .order("fecha_cierre", { ascending: false })
         .limit(10);
       if (error) throw error;
@@ -94,7 +96,7 @@ export default function Caja() {
 
   const cerrarCaja = useMutation({
     mutationFn: async () => {
-      const { data, error } = await supabase.rpc("cerrar_caja");
+      const { data, error } = await supabase.rpc("cerrar_caja", { p_caja: "principal" });
       if (error) throw error;
       return data as CierreCaja;
     },

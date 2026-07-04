@@ -11,6 +11,7 @@ const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const POS = lazy(() => import("@/pages/POS"));
 const Ordenes = lazy(() => import("@/pages/Ordenes"));
 const Caja = lazy(() => import("@/pages/Caja"));
+const Movimientos = lazy(() => import("@/pages/Movimientos"));
 const Nomina = lazy(() => import("@/pages/Nomina"));
 const Inventario = lazy(() => import("@/pages/Inventario"));
 const Clientes = lazy(() => import("@/pages/Clientes"));
@@ -46,6 +47,7 @@ function App() {
             {/* Solo staff (admin / super_admin) */}
             <Route element={<RoleRoute roles={["admin", "super_admin"]} />}>
               <Route path="caja" element={<Caja />} />
+              <Route path="movimientos" element={<Movimientos />} />
               <Route path="empleados" element={<Empleados />} />
             </Route>
           </Route>
