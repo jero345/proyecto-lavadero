@@ -81,16 +81,19 @@ export default function Caja() {
   });
 
   const totales = useMemo(() => {
-    const t = { efectivo: 0, qr: 0, transferencia: 0, egresos: 0, general: 0 };
+    const t = { efectivo: 0, qr: 0, transferencia: 0, egresos: 0, nomina: 0, general: 0 };
     for (const m of abiertos) {
       const monto = Number(m.monto);
       if (m.tipo === "egreso") {
-        t.egresos += monto;
+        // Los egresos de nómina llevan el concepto "Nómina: …" (los genera
+        // liquidar_nomina). Se muestran en su propio cajón, aparte del resto.
+        if ((m.concepto ?? "").startsWith("Nómina")) t.nomina += monto;
+        else t.egresos += monto;
       } else if (m.metodo_pago) {
         t[m.metodo_pago] += monto;
       }
     }
-    t.general = t.efectivo + t.qr + t.transferencia - t.egresos;
+    t.general = t.efectivo + t.qr + t.transferencia - t.egresos - t.nomina;
     return t;
   }, [abiertos]);
 
@@ -115,11 +118,12 @@ export default function Caja() {
   return (
     <div className="space-y-6">
       {/* Resumen de caja abierta */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
         <ResumenCard titulo="Efectivo" valor={totales.efectivo} />
         <ResumenCard titulo="QR" valor={totales.qr} />
         <ResumenCard titulo="Transferencia" valor={totales.transferencia} />
         <ResumenCard titulo="Egresos" valor={totales.egresos} negativo />
+        <ResumenCard titulo="Nómina" valor={totales.nomina} negativo />
         <ResumenCard titulo="Total en caja" valor={totales.general} destacado />
       </div>
 

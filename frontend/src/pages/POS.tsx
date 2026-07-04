@@ -40,7 +40,6 @@ export default function POS() {
 
   const [tipo, setTipo] = useState<TipoVehiculo | null>(null);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
-  const [placa, setPlaca] = useState("");
   const [clienteId, setClienteId] = useState<string>("");
   const [empleadoId, setEmpleadoId] = useState<string>("");
   const [metodoPago, setMetodoPago] = useState<MetodoPago | "">("");
@@ -88,7 +87,6 @@ export default function POS() {
   function reset() {
     setTipo(null);
     setSeleccion(new Set());
-    setPlaca("");
     setClienteId("");
     setMetodoPago("");
     setObservaciones("");
@@ -100,7 +98,6 @@ export default function POS() {
     mutationFn: async () => {
       if (!profile) throw new Error("Sesión no válida");
       if (seleccion.size === 0) throw new Error("Selecciona al menos un servicio");
-      if (!placa.trim()) throw new Error("Ingresa la placa");
       if (!empleadoId) throw new Error("Selecciona el empleado");
       // El método de pago es OPCIONAL: si no se elige, la orden queda agendada
       // (pendiente de cobro) y se cobra luego desde el Dashboard.
@@ -118,7 +115,7 @@ export default function POS() {
         p_servicio_ids: Array.from(seleccion),
         p_empleado_id: empleadoId,
         p_metodo_pago: metodoPago || null,
-        p_placa: placa.trim().toUpperCase(),
+        p_placa: null,
         p_cliente_id: clienteId || null,
         p_vehiculo_id: null,
         p_foto_url: null,
@@ -150,9 +147,9 @@ export default function POS() {
           los datos del cliente queden antes que los servicios. */}
       <div className="contents lg:block lg:space-y-6">
         {/* 1. Tipo de vehículo */}
-        <Card className="order-1 lg:order-none">
+        <Card className="order-2 lg:order-none">
           <CardHeader>
-            <CardTitle className="text-base">1. Tipo de vehículo</CardTitle>
+            <CardTitle className="text-base">Tipo de vehículo</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {TIPOS_VEHICULO.map((t) => {
@@ -188,7 +185,7 @@ export default function POS() {
         {/* 2. Servicios */}
         <Card className="order-3 lg:order-none">
           <CardHeader>
-            <CardTitle className="text-base">2. Servicios</CardTitle>
+            <CardTitle className="text-base">Servicios</CardTitle>
           </CardHeader>
           <CardContent>
             {!tipo ? (
@@ -251,24 +248,13 @@ export default function POS() {
         </Card>
       </div>
 
-      {/* Panel derecho: datos + cobro (sticky en desktop). */}
+      {/* Panel derecho: datos + cobro. En móvil van PRIMERO (order-1). */}
       <div className="contents lg:block lg:space-y-4 lg:sticky lg:top-0 lg:self-start">
-        <Card className="order-2 lg:order-none">
+        <Card className="order-1 lg:order-none">
           <CardHeader>
-            <CardTitle className="text-base">3. Datos y cobro</CardTitle>
+            <CardTitle className="text-base">Datos y cobro</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="placa">Placa</Label>
-              <Input
-                id="placa"
-                placeholder="ABC123"
-                value={placa}
-                onChange={(e) => setPlaca(e.target.value.toUpperCase())}
-                className="uppercase"
-              />
-            </div>
-
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Cliente (opcional)</Label>
