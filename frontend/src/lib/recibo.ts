@@ -5,7 +5,7 @@
 import { formatCOP, formatFechaHora } from "./format";
 import { LABEL_METODO_PAGO } from "./dominio";
 import { NEGOCIO } from "./negocio";
-import type { MetodoPago, Orden } from "@/types/database.types";
+import type { MetodoPago, Orden, VentaProducto } from "@/types/database.types";
 
 export interface ReciboItem {
   nombre: string;
@@ -21,19 +21,25 @@ function esc(valor: string | null | undefined): string {
   );
 }
 
-/** Número corto y estable de recibo, derivado del id de la orden. */
-export function numeroRecibo(orden: Orden): string {
-  return orden.id.replace(/-/g, "").slice(-6).toUpperCase();
+/** Número corto y estable de recibo, derivado de un id (orden o venta). */
+export function numeroRecibo(idOrOrden: string | Orden): string {
+  const id = typeof idOrOrden === "string" ? idOrOrden : idOrOrden.id;
+  return id.replace(/-/g, "").slice(-6).toUpperCase();
 }
 
-/** Arma el documento HTML completo del recibo (tirilla 80mm). */
+/**
+ * Arma el documento HTML completo de un recibo (tirilla 80mm). Es genérico:
+ * lo usan tanto las órdenes de lavado como las ventas de inventario.
+ */
 function construirHTML(opts: {
-  orden: Orden;
+  numero: string;
+  fecha: string;
+  lineaRef?: string;
   items: ReciboItem[];
-  atendio?: string | null;
+  total: number;
+  metodo: MetodoPago | null;
 }): string {
-  const { orden, items } = opts;
-  const metodo: MetodoPago | null = orden.metodo_pago;
+  const { numero, fecha, lineaRef, items, total, metodo } = opts;
 
   const filas = items
     .map(
@@ -43,12 +49,14 @@ function construirHTML(opts: {
     .join("");
 
   const lineaPago = metodo
-    ? `<div class="row"><span>Pago: ${esc(LABEL_METODO_PAGO[metodo])}</span><span class="r">${formatCOP(orden.total)}</span></div>`
+    ? `<div class="row"><span>Pago: ${esc(LABEL_METODO_PAGO[metodo])}</span><span class="r">${formatCOP(total)}</span></div>`
     : `<div class="row bold"><span>** PENDIENTE DE PAGO **</span><span class="r"></span></div>`;
+
+  const filaRef = lineaRef ? `<div class="small">${esc(lineaRef)}</div>` : "";
 
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
-<title>Recibo ${esc(numeroRecibo(orden))}</title>
+<title>Recibo ${esc(numero)}</title>
 <style>
   @page { size: 80mm auto; margin: 0; }
   * { box-sizing: border-box; }
@@ -77,15 +85,15 @@ function construirHTML(opts: {
 
     <div class="sep"></div>
     <div class="center bold">RECIBO DE VENTA</div>
-    <div class="center small">N° ${esc(numeroRecibo(orden))}</div>
-    <div class="small">${esc(formatFechaHora(orden.created_at))}</div>
-    <div class="small">Placa: ${esc(orden.placa || "—")}</div>
+    <div class="center small">N° ${esc(numero)}</div>
+    <div class="small">${esc(fecha)}</div>
+    ${filaRef}
 
     <div class="sep"></div>
     <table>${filas}</table>
 
     <div class="sep"></div>
-    <div class="row total bold"><span>TOTAL</span><span class="r">${formatCOP(orden.total)}</span></div>
+    <div class="row total bold"><span>TOTAL</span><span class="r">${formatCOP(total)}</span></div>
     ${lineaPago}
 
     <div class="sep"></div>
@@ -153,11 +161,40 @@ function imprimirHTML(html: string) {
   }
 }
 
-/** Genera e imprime el recibo de una orden. */
+/** Genera e imprime el recibo de una orden de lavado. */
 export function imprimirReciboOrden(opts: {
   orden: Orden;
   items: ReciboItem[];
   atendio?: string | null;
 }) {
-  imprimirHTML(construirHTML(opts));
+  imprimirHTML(
+    construirHTML({
+      numero: numeroRecibo(opts.orden),
+      fecha: formatFechaHora(opts.orden.created_at),
+      lineaRef: `Placa: ${opts.orden.placa || "—"}`,
+      items: opts.items,
+      total: Number(opts.orden.total),
+      metodo: opts.orden.metodo_pago,
+    }),
+  );
+}
+
+/** Genera e imprime el recibo de una venta de inventario (producto). */
+export function imprimirReciboVenta(venta: VentaProducto) {
+  const cantidad = Number(venta.cantidad);
+  const precioUnitario = Number(venta.precio_unitario);
+  const nombreItem =
+    cantidad > 1
+      ? `${venta.producto_nombre} (${cantidad} x ${formatCOP(precioUnitario)})`
+      : venta.producto_nombre;
+
+  imprimirHTML(
+    construirHTML({
+      numero: numeroRecibo(venta.id),
+      fecha: formatFechaHora(venta.created_at),
+      items: [{ nombre: nombreItem, precio: Number(venta.total) }],
+      total: Number(venta.total),
+      metodo: venta.metodo_pago,
+    }),
+  );
 }

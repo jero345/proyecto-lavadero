@@ -28,7 +28,7 @@ import { supabase } from "@/lib/supabase";
 import { TIPOS_VEHICULO, METODOS_PAGO } from "@/lib/dominio";
 import { useAuth } from "@/hooks/useAuth";
 import { useClientes, useEmpleados, useServicios } from "@/hooks/queries";
-import type { MetodoPago, TipoVehiculo } from "@/types/database.types";
+import type { Cliente, MetodoPago, TipoVehiculo } from "@/types/database.types";
 
 export default function POS() {
   const { profile, isStaff } = useAuth();
@@ -83,6 +83,13 @@ export default function POS() {
   function cambiarTipo(t: TipoVehiculo) {
     setTipo(t);
     setSeleccion(new Set()); // los servicios dependen del tipo
+  }
+
+  // Al elegir un cliente, carga sus datos en la orden (autocompleta la placa).
+  function seleccionarCliente(id: string) {
+    setClienteId(id);
+    const cliente = clientes.find((c) => c.id === id);
+    if (cliente?.placa) setPlaca(cliente.placa.toUpperCase());
   }
 
   function reset() {
@@ -271,9 +278,14 @@ export default function POS() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Cliente (opcional)</Label>
-                <NuevoClienteRapido onCreado={(id) => setClienteId(id)} />
+                <NuevoClienteRapido
+                  onCreado={(cliente) => {
+                    setClienteId(cliente.id);
+                    if (cliente.placa) setPlaca(cliente.placa);
+                  }}
+                />
               </div>
-              <Select value={clienteId} onValueChange={setClienteId}>
+              <Select value={clienteId} onValueChange={seleccionarCliente}>
                 <SelectTrigger>
                   <SelectValue placeholder="Sin cliente" />
                 </SelectTrigger>
@@ -281,6 +293,7 @@ export default function POS() {
                   {clientes.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.nombre}
+                      {c.placa ? ` · ${c.placa}` : ""}
                       {c.telefono ? ` · ${c.telefono}` : ""}
                     </SelectItem>
                   ))}
@@ -405,18 +418,23 @@ export default function POS() {
 }
 
 /** Crea un cliente al instante desde el POS y lo deja seleccionado. */
-function NuevoClienteRapido({ onCreado }: { onCreado: (id: string) => void }) {
+function NuevoClienteRapido({ onCreado }: { onCreado: (cliente: Cliente) => void }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [nombre, setNombre] = useState("");
   const [telefono, setTelefono] = useState("");
+  const [placa, setPlaca] = useState("");
 
   const crear = useMutation({
     mutationFn: async () => {
       if (!nombre.trim()) throw new Error("El nombre es obligatorio");
       const { data, error } = await supabase
         .from("clientes")
-        .insert({ nombre: nombre.trim(), telefono: telefono.trim() || null })
+        .insert({
+          nombre: nombre.trim(),
+          telefono: telefono.trim() || null,
+          placa: placa.trim().toUpperCase() || null,
+        })
         .select()
         .single();
       if (error) throw error;
@@ -426,9 +444,10 @@ function NuevoClienteRapido({ onCreado }: { onCreado: (id: string) => void }) {
       toast.success("Cliente creado");
       // Refresca la lista y deja al nuevo cliente seleccionado en la orden.
       await queryClient.invalidateQueries({ queryKey: ["clientes"] });
-      onCreado(cliente.id);
+      onCreado(cliente);
       setNombre("");
       setTelefono("");
+      setPlaca("");
       setOpen(false);
     },
     onError: (e: unknown) =>
@@ -466,6 +485,16 @@ function NuevoClienteRapido({ onCreado }: { onCreado: (id: string) => void }) {
                 value={telefono}
                 onChange={(e) => setTelefono(e.target.value)}
                 placeholder="300 000 0000"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="qc-placa">Placa (opcional)</Label>
+              <Input
+                id="qc-placa"
+                value={placa}
+                onChange={(e) => setPlaca(e.target.value.toUpperCase())}
+                className="uppercase"
+                placeholder="ABC123"
               />
             </div>
           </div>

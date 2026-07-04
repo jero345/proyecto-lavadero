@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -6,6 +6,8 @@ import {
   PackageMinus,
   PackagePlus,
   Plus,
+  Printer,
+  Search,
   ShoppingCart,
   SquarePen,
 } from "lucide-react";
@@ -41,6 +43,7 @@ import {
 } from "@/components/ui/select";
 import { formatCOP, formatFechaHora } from "@/lib/format";
 import { METODOS_PAGO, LABEL_METODO_PAGO } from "@/lib/dominio";
+import { imprimirReciboVenta } from "@/lib/recibo";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import type {
@@ -85,6 +88,8 @@ export default function Inventario() {
   const queryClient = useQueryClient();
   const [editando, setEditando] = useState<Producto | null>(null);
   const [vendiendo, setVendiendo] = useState<Producto | null>(null);
+  const [busquedaProd, setBusquedaProd] = useState("");
+  const [busquedaVenta, setBusquedaVenta] = useState("");
 
   const { data: productos = [] } = useQuery({
     queryKey: ["inventario", "productos"],
@@ -112,6 +117,18 @@ export default function Inventario() {
     queryClient.invalidateQueries({ queryKey: ["inventario"] });
     queryClient.invalidateQueries({ queryKey: ["caja"] });
   };
+
+  const productosFiltrados = useMemo(() => {
+    const q = busquedaProd.trim().toLowerCase();
+    if (!q) return productos;
+    return productos.filter((p) => p.nombre.toLowerCase().includes(q));
+  }, [productos, busquedaProd]);
+
+  const ventasFiltradas = useMemo(() => {
+    const q = busquedaVenta.trim().toLowerCase();
+    if (!q) return ventas;
+    return ventas.filter((v) => v.producto_nombre.toLowerCase().includes(q));
+  }, [ventas, busquedaVenta]);
 
   // Registra el movimiento y ajusta el stock de forma atómica (RPC en el servidor).
   const mover = useMutation({
@@ -149,11 +166,25 @@ export default function Inventario() {
         <NuevoProducto onCreado={invalidar} />
       </div>
 
+      <div className="relative sm:max-w-xs">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Buscar producto…"
+          className="pl-8"
+          value={busquedaProd}
+          onChange={(e) => setBusquedaProd(e.target.value)}
+        />
+      </div>
+
       <Card>
         <CardContent className="p-0">
           {productos.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
               No hay productos. Agrega el primero.
+            </p>
+          ) : productosFiltrados.length === 0 ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">
+              Ningún producto coincide con «{busquedaProd}».
             </p>
           ) : (
             <Table>
@@ -168,7 +199,7 @@ export default function Inventario() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {productos.map((p) => {
+                {productosFiltrados.map((p) => {
                   const stock = Number(p.stock_actual) || 0;
                   const precio = Number(p.precio) || 0;
                   const bajo = stock <= (Number(p.stock_minimo) || 0);
@@ -260,13 +291,26 @@ export default function Inventario() {
 
       {/* Ventas recientes */}
       <Card>
-        <CardHeader>
+        <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="text-base">Ventas recientes</CardTitle>
+          <div className="relative sm:max-w-xs">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Buscar venta…"
+              className="pl-8"
+              value={busquedaVenta}
+              onChange={(e) => setBusquedaVenta(e.target.value)}
+            />
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           {ventas.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               Aún no hay ventas registradas.
+            </p>
+          ) : ventasFiltradas.length === 0 ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              Ninguna venta coincide con «{busquedaVenta}».
             </p>
           ) : (
             <Table>
@@ -277,10 +321,11 @@ export default function Inventario() {
                   <TableHead className="text-right">Cantidad</TableHead>
                   <TableHead>Método</TableHead>
                   <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Recibo</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {ventas.map((v) => (
+                {ventasFiltradas.map((v) => (
                   <TableRow key={v.id}>
                     <TableCell className="whitespace-nowrap text-muted-foreground">
                       {formatFechaHora(v.created_at)}
@@ -290,6 +335,16 @@ export default function Inventario() {
                     <TableCell>{LABEL_METODO_PAGO[v.metodo_pago]}</TableCell>
                     <TableCell className="text-right font-semibold">
                       {formatCOP(v.total)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        title="Imprimir recibo"
+                        onClick={() => imprimirReciboVenta(v)}
+                      >
+                        <Printer className="h-3.5 w-3.5" />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
