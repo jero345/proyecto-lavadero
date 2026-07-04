@@ -43,7 +43,7 @@ export default function Clientes() {
     const q = busqueda.trim().toLowerCase();
     if (!q) return clientes;
     return clientes.filter((c) =>
-      [c.nombre, c.telefono, c.placa]
+      [c.nombre, c.telefono]
         .filter(Boolean)
         .some((campo) => campo!.toLowerCase().includes(q)),
     );
@@ -59,7 +59,7 @@ export default function Clientes() {
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="Buscar por nombre, teléfono o placa…"
+          placeholder="Buscar por nombre o teléfono…"
           value={busqueda}
           onChange={(e) => setBusqueda(e.target.value)}
           className="pl-9"
@@ -82,7 +82,6 @@ export default function Clientes() {
                 <TableRow>
                   <TableHead>Nombre</TableHead>
                   <TableHead>Teléfono</TableHead>
-                  <TableHead>Placa</TableHead>
                   <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
@@ -91,7 +90,6 @@ export default function Clientes() {
                   <TableRow key={c.id}>
                     <TableCell className="font-medium">{c.nombre}</TableCell>
                     <TableCell className="text-muted-foreground">{c.telefono || "—"}</TableCell>
-                    <TableCell className="font-medium uppercase">{c.placa || "—"}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         {c.telefono && (
@@ -142,7 +140,6 @@ function EditarCliente({
 }) {
   const [nombre, setNombre] = useState(cliente?.nombre ?? "");
   const [telefono, setTelefono] = useState(cliente?.telefono ?? "");
-  const [placa, setPlaca] = useState(cliente?.placa ?? "");
 
   const guardar = useMutation({
     mutationFn: async () => {
@@ -150,11 +147,7 @@ function EditarCliente({
       if (!nombre.trim()) throw new Error("Nombre requerido");
       const { data, error } = await supabase
         .from("clientes")
-        .update({
-          nombre: nombre.trim(),
-          telefono: telefono.trim() || null,
-          placa: placa.trim().toUpperCase() || null,
-        })
+        .update({ nombre: nombre.trim(), telefono: telefono.trim() || null })
         .eq("id", cliente.id)
         .select();
       if (error) throw error;
@@ -192,16 +185,6 @@ function EditarCliente({
             <Label htmlFor="ec-tel">Teléfono</Label>
             <Input id="ec-tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="ec-placa">Placa (opcional)</Label>
-            <Input
-              id="ec-placa"
-              value={placa}
-              onChange={(e) => setPlaca(e.target.value.toUpperCase())}
-              className="uppercase"
-              placeholder="ABC123"
-            />
-          </div>
         </div>
         <DialogFooter>
           <Button onClick={() => guardar.mutate()} disabled={guardar.isPending}>
@@ -218,23 +201,19 @@ function NuevoCliente({ onCreado }: { onCreado: () => void }) {
   const [open, setOpen] = useState(false);
   const [nombre, setNombre] = useState("");
   const [telefono, setTelefono] = useState("");
-  const [placa, setPlaca] = useState("");
 
   const crear = useMutation({
     mutationFn: async () => {
       if (!nombre.trim()) throw new Error("Nombre requerido");
-      const { error } = await supabase.from("clientes").insert({
-        nombre: nombre.trim(),
-        telefono: telefono.trim() || null,
-        placa: placa.trim().toUpperCase() || null,
-      });
+      const { error } = await supabase
+        .from("clientes")
+        .insert({ nombre: nombre.trim(), telefono: telefono.trim() || null });
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Cliente agregado");
       setNombre("");
       setTelefono("");
-      setPlaca("");
       setOpen(false);
       onCreado();
     },
@@ -264,16 +243,6 @@ function NuevoCliente({ onCreado }: { onCreado: () => void }) {
           <div className="space-y-2">
             <Label htmlFor="nc-tel">Teléfono</Label>
             <Input id="nc-tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="nc-placa">Placa (opcional)</Label>
-            <Input
-              id="nc-placa"
-              value={placa}
-              onChange={(e) => setPlaca(e.target.value.toUpperCase())}
-              className="uppercase"
-              placeholder="ABC123"
-            />
           </div>
         </div>
         <DialogFooter>

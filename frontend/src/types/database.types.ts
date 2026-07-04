@@ -33,20 +33,8 @@ export type Database = {
         Relationships: [];
       };
       clientes: {
-        Row: {
-          id: string;
-          nombre: string;
-          telefono: string | null;
-          placa: string | null;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          nombre: string;
-          telefono?: string | null;
-          placa?: string | null;
-          created_at?: string;
-        };
+        Row: { id: string; nombre: string; telefono: string | null; created_at: string };
+        Insert: { id?: string; nombre: string; telefono?: string | null; created_at?: string };
         Update: Partial<Database["public"]["Tables"]["clientes"]["Insert"]>;
         Relationships: [];
       };

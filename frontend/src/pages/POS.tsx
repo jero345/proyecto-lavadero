@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Plus } from "lucide-react";
+import { Check, ChevronsUpDown, Loader2, Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -29,11 +29,6 @@ import { TIPOS_VEHICULO, METODOS_PAGO } from "@/lib/dominio";
 import { useAuth } from "@/hooks/useAuth";
 import { useClientes, useEmpleados, useServicios } from "@/hooks/queries";
 import type { Cliente, MetodoPago, TipoVehiculo } from "@/types/database.types";
-
-/** Normaliza una placa para comparar: mayúsculas, sin espacios ni guiones. */
-function normalizarPlaca(placa: string): string {
-  return placa.toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
 
 export default function POS() {
   const { profile, isStaff } = useAuth();
@@ -88,32 +83,6 @@ export default function POS() {
   function cambiarTipo(t: TipoVehiculo) {
     setTipo(t);
     setSeleccion(new Set()); // los servicios dependen del tipo
-  }
-
-  // Al elegir un cliente, carga sus datos en la orden (autocompleta la placa).
-  function seleccionarCliente(id: string) {
-    setClienteId(id);
-    const cliente = clientes.find((c) => c.id === id);
-    if (cliente?.placa) setPlaca(cliente.placa.toUpperCase());
-  }
-
-  // Al escribir la placa, si hay un cliente guardado con esa placa lo
-  // autoselecciona. Si se borra/cambia la placa, suelta el cliente autollenado.
-  // Compara sin espacios ni guiones: "KHE-249" coincide con "KHE249".
-  function cambiarPlaca(valor: string) {
-    const nuevaPlaca = valor.toUpperCase();
-    setPlaca(nuevaPlaca);
-    const normal = normalizarPlaca(nuevaPlaca);
-    const match = normal
-      ? clientes.find((c) => normalizarPlaca(c.placa ?? "") === normal)
-      : undefined;
-    if (match) {
-      if (match.id !== clienteId) setClienteId(match.id);
-    } else if (clienteId) {
-      // El cliente actual ya no coincide con la placa escrita: lo soltamos.
-      const actual = clientes.find((c) => c.id === clienteId);
-      if (actual?.placa) setClienteId("");
-    }
   }
 
   function reset() {
@@ -176,11 +145,12 @@ export default function POS() {
   });
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-      {/* Panel izquierdo: selección */}
-      <div className="space-y-6">
+    <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[1fr_360px]">
+      {/* Panel izquierdo: selección. En móvil se "disuelve" (contents) para que
+          los datos del cliente queden antes que los servicios. */}
+      <div className="contents lg:block lg:space-y-6">
         {/* 1. Tipo de vehículo */}
-        <Card>
+        <Card className="order-1 lg:order-none">
           <CardHeader>
             <CardTitle className="text-base">1. Tipo de vehículo</CardTitle>
           </CardHeader>
@@ -216,7 +186,7 @@ export default function POS() {
         </Card>
 
         {/* 2. Servicios */}
-        <Card>
+        <Card className="order-3 lg:order-none">
           <CardHeader>
             <CardTitle className="text-base">2. Servicios</CardTitle>
           </CardHeader>
@@ -281,9 +251,9 @@ export default function POS() {
         </Card>
       </div>
 
-      {/* Panel derecho: datos + cobro (sticky) */}
-      <div className="space-y-4 lg:sticky lg:top-0 lg:self-start">
-        <Card>
+      {/* Panel derecho: datos + cobro (sticky en desktop). */}
+      <div className="contents lg:block lg:space-y-4 lg:sticky lg:top-0 lg:self-start">
+        <Card className="order-2 lg:order-none">
           <CardHeader>
             <CardTitle className="text-base">3. Datos y cobro</CardTitle>
           </CardHeader>
@@ -294,7 +264,7 @@ export default function POS() {
                 id="placa"
                 placeholder="ABC123"
                 value={placa}
-                onChange={(e) => cambiarPlaca(e.target.value)}
+                onChange={(e) => setPlaca(e.target.value.toUpperCase())}
                 className="uppercase"
               />
             </div>
@@ -302,27 +272,13 @@ export default function POS() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Cliente (opcional)</Label>
-                <NuevoClienteRapido
-                  onCreado={(cliente) => {
-                    setClienteId(cliente.id);
-                    if (cliente.placa) setPlaca(cliente.placa);
-                  }}
-                />
+                <NuevoClienteRapido onCreado={(id) => setClienteId(id)} />
               </div>
-              <Select value={clienteId} onValueChange={seleccionarCliente}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Sin cliente" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clientes.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nombre}
-                      {c.placa ? ` · ${c.placa}` : ""}
-                      {c.telefono ? ` · ${c.telefono}` : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ClientePicker
+                clientes={clientes}
+                value={clienteId}
+                onChange={setClienteId}
+              />
             </div>
 
             <div className="space-y-2">
@@ -385,7 +341,7 @@ export default function POS() {
         </Card>
 
         {/* Total + acción */}
-        <Card>
+        <Card className="order-4 lg:order-none">
           <CardContent className="space-y-3 pt-6">
             <div className="flex items-center justify-between text-sm text-muted-foreground">
               <span>{seleccion.size} servicio(s)</span>
@@ -441,24 +397,141 @@ export default function POS() {
   );
 }
 
+/**
+ * Selector de cliente con buscador. Muestra el cliente elegido en un botón que
+ * abre un diálogo con un campo de búsqueda y la lista filtrada (por nombre o
+ * teléfono). Pensado para funcionar bien en móvil al agendar.
+ */
+function ClientePicker({
+  clientes,
+  value,
+  onChange,
+}: {
+  clientes: Cliente[];
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busqueda, setBusqueda] = useState("");
+
+  const seleccionado = clientes.find((c) => c.id === value) ?? null;
+
+  const filtrados = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    if (!q) return clientes;
+    return clientes.filter((c) =>
+      [c.nombre, c.telefono]
+        .filter(Boolean)
+        .some((campo) => campo!.toLowerCase().includes(q)),
+    );
+  }, [clientes, busqueda]);
+
+  function elegir(id: string) {
+    onChange(id);
+    setOpen(false);
+    setBusqueda("");
+  }
+
+  return (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full justify-between font-normal"
+        onClick={() => setOpen(true)}
+      >
+        <span className={cn("truncate", !seleccionado && "text-muted-foreground")}>
+          {seleccionado
+            ? `${seleccionado.nombre}${seleccionado.telefono ? ` · ${seleccionado.telefono}` : ""}`
+            : "Sin cliente"}
+        </span>
+        <span className="flex items-center gap-1">
+          {seleccionado && (
+            <X
+              className="h-4 w-4 text-muted-foreground hover:text-foreground"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange("");
+              }}
+            />
+          )}
+          <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
+        </span>
+      </Button>
+
+      <Dialog
+        open={open}
+        onOpenChange={(o) => {
+          setOpen(o);
+          if (!o) setBusqueda("");
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Buscar cliente</DialogTitle>
+          </DialogHeader>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              autoFocus
+              placeholder="Nombre o teléfono…"
+              className="pl-8"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+            />
+          </div>
+          <div className="max-h-72 space-y-1 overflow-y-auto">
+            <button
+              type="button"
+              onClick={() => elegir("")}
+              className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm text-muted-foreground hover:bg-accent"
+            >
+              Sin cliente
+            </button>
+            {filtrados.length === 0 ? (
+              <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+                No se encontraron clientes.
+              </p>
+            ) : (
+              filtrados.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => elegir(c.id)}
+                  className={cn(
+                    "flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent",
+                    c.id === value && "bg-accent",
+                  )}
+                >
+                  <span className="truncate font-medium">{c.nombre}</span>
+                  {c.telefono && (
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {c.telefono}
+                    </span>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 /** Crea un cliente al instante desde el POS y lo deja seleccionado. */
-function NuevoClienteRapido({ onCreado }: { onCreado: (cliente: Cliente) => void }) {
+function NuevoClienteRapido({ onCreado }: { onCreado: (id: string) => void }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [nombre, setNombre] = useState("");
   const [telefono, setTelefono] = useState("");
-  const [placa, setPlaca] = useState("");
 
   const crear = useMutation({
     mutationFn: async () => {
       if (!nombre.trim()) throw new Error("El nombre es obligatorio");
       const { data, error } = await supabase
         .from("clientes")
-        .insert({
-          nombre: nombre.trim(),
-          telefono: telefono.trim() || null,
-          placa: placa.trim().toUpperCase() || null,
-        })
+        .insert({ nombre: nombre.trim(), telefono: telefono.trim() || null })
         .select()
         .single();
       if (error) throw error;
@@ -468,10 +541,9 @@ function NuevoClienteRapido({ onCreado }: { onCreado: (cliente: Cliente) => void
       toast.success("Cliente creado");
       // Refresca la lista y deja al nuevo cliente seleccionado en la orden.
       await queryClient.invalidateQueries({ queryKey: ["clientes"] });
-      onCreado(cliente);
+      onCreado(cliente.id);
       setNombre("");
       setTelefono("");
-      setPlaca("");
       setOpen(false);
     },
     onError: (e: unknown) =>
@@ -509,16 +581,6 @@ function NuevoClienteRapido({ onCreado }: { onCreado: (cliente: Cliente) => void
                 value={telefono}
                 onChange={(e) => setTelefono(e.target.value)}
                 placeholder="300 000 0000"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="qc-placa">Placa (opcional)</Label>
-              <Input
-                id="qc-placa"
-                value={placa}
-                onChange={(e) => setPlaca(e.target.value.toUpperCase())}
-                className="uppercase"
-                placeholder="ABC123"
               />
             </div>
           </div>
