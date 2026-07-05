@@ -383,10 +383,21 @@ export default function POS() {
   );
 }
 
+/** Identificador principal del cliente: la PLACA (o el nombre si no tiene). */
+function etiquetaCliente(c: Cliente): string {
+  return c.placa || c.nombre;
+}
+/** Datos secundarios (nombre distinto de la placa + teléfono). */
+function subtituloCliente(c: Cliente): string {
+  const partes: string[] = [];
+  if (c.placa && c.nombre && c.nombre !== c.placa) partes.push(c.nombre);
+  if (c.telefono) partes.push(c.telefono);
+  return partes.join(" · ");
+}
+
 /**
- * Selector de cliente con buscador. Muestra el cliente elegido en un botón que
- * abre un diálogo con un campo de búsqueda y la lista filtrada (por nombre o
- * teléfono). Pensado para funcionar bien en móvil al agendar.
+ * Selector de cliente con buscador. El dueño busca por PLACA (también por nombre
+ * o teléfono). Muestra la placa como identificador principal.
  */
 function ClientePicker({
   clientes,
@@ -406,7 +417,7 @@ function ClientePicker({
     const q = busqueda.trim().toLowerCase();
     if (!q) return clientes;
     return clientes.filter((c) =>
-      [c.nombre, c.telefono]
+      [c.placa, c.nombre, c.telefono]
         .filter(Boolean)
         .some((campo) => campo!.toLowerCase().includes(q)),
     );
@@ -428,7 +439,7 @@ function ClientePicker({
       >
         <span className={cn("truncate", !seleccionado && "text-muted-foreground")}>
           {seleccionado
-            ? `${seleccionado.nombre}${seleccionado.telefono ? ` · ${seleccionado.telefono}` : ""}`
+            ? `${etiquetaCliente(seleccionado)}${seleccionado.telefono ? ` · ${seleccionado.telefono}` : ""}`
             : "Sin cliente"}
         </span>
         <span className="flex items-center gap-1">
@@ -460,8 +471,8 @@ function ClientePicker({
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               autoFocus
-              placeholder="Nombre o teléfono…"
-              className="pl-8"
+              placeholder="Placa, nombre o teléfono…"
+              className="pl-8 uppercase"
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
             />
@@ -479,24 +490,27 @@ function ClientePicker({
                 No se encontraron clientes.
               </p>
             ) : (
-              filtrados.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => elegir(c.id)}
-                  className={cn(
-                    "flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent",
-                    c.id === value && "bg-accent",
-                  )}
-                >
-                  <span className="truncate font-medium">{c.nombre}</span>
-                  {c.telefono && (
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {c.telefono}
+              filtrados.map((c) => {
+                const sub = subtituloCliente(c);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => elegir(c.id)}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent",
+                      c.id === value && "bg-accent",
+                    )}
+                  >
+                    <span className="truncate font-medium uppercase">
+                      {etiquetaCliente(c)}
                     </span>
-                  )}
-                </button>
-              ))
+                    {sub && (
+                      <span className="shrink-0 text-xs text-muted-foreground">{sub}</span>
+                    )}
+                  </button>
+                );
+              })
             )}
           </div>
         </DialogContent>
@@ -509,15 +523,24 @@ function ClientePicker({
 function NuevoClienteRapido({ onCreado }: { onCreado: (id: string) => void }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [placa, setPlaca] = useState("");
   const [nombre, setNombre] = useState("");
   const [telefono, setTelefono] = useState("");
 
   const crear = useMutation({
     mutationFn: async () => {
-      if (!nombre.trim()) throw new Error("El nombre es obligatorio");
+      const placaLimpia = placa.trim().toUpperCase();
+      const nombreLimpio = nombre.trim();
+      // La placa es lo principal; el nombre es opcional. Debe haber al menos uno.
+      if (!placaLimpia && !nombreLimpio) throw new Error("Ingresá la placa (o el nombre)");
       const { data, error } = await supabase
         .from("clientes")
-        .insert({ nombre: nombre.trim(), telefono: telefono.trim() || null })
+        .insert({
+          // Si no hay nombre, usamos la placa como nombre (la columna es NOT NULL).
+          nombre: nombreLimpio || placaLimpia,
+          placa: placaLimpia || null,
+          telefono: telefono.trim() || null,
+        })
         .select()
         .single();
       if (error) throw error;
@@ -528,6 +551,7 @@ function NuevoClienteRapido({ onCreado }: { onCreado: (id: string) => void }) {
       // Refresca la lista y deja al nuevo cliente seleccionado en la orden.
       await queryClient.invalidateQueries({ queryKey: ["clientes"] });
       onCreado(cliente.id);
+      setPlaca("");
       setNombre("");
       setTelefono("");
       setOpen(false);
@@ -551,13 +575,23 @@ function NuevoClienteRapido({ onCreado }: { onCreado: (id: string) => void }) {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="qc-nombre">Nombre</Label>
+              <Label htmlFor="qc-placa">Placa</Label>
+              <Input
+                id="qc-placa"
+                value={placa}
+                onChange={(e) => setPlaca(e.target.value.toUpperCase())}
+                placeholder="ABC123"
+                className="uppercase"
+                autoFocus
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="qc-nombre">Nombre (opcional)</Label>
               <Input
                 id="qc-nombre"
                 value={nombre}
                 onChange={(e) => setNombre(e.target.value)}
                 placeholder="Nombre del cliente"
-                autoFocus
               />
             </div>
             <div className="space-y-2">
