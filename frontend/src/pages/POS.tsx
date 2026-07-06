@@ -111,11 +111,15 @@ export default function POS() {
         overrideTotal = n;
       }
 
+      // La placa se hereda del cliente seleccionado para que quede en la orden
+      // (el dueño la necesita al cobrar y en el Dashboard).
+      const placaCliente = clientes.find((c) => c.id === clienteId)?.placa ?? null;
+
       const { data, error } = await supabase.rpc("crear_orden", {
         p_servicio_ids: Array.from(seleccion),
         p_empleado_id: empleadoId,
         p_metodo_pago: metodoPago || null,
-        p_placa: null,
+        p_placa: placaCliente,
         p_cliente_id: clienteId || null,
         p_vehiculo_id: null,
         p_foto_url: null,
