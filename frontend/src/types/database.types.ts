@@ -342,6 +342,10 @@ export type Database = {
         Args: { p_orden_id: string };
         Returns: undefined;
       };
+      eliminar_movimiento: {
+        Args: { p_mov_id: string };
+        Returns: undefined;
+      };
       registrar_movimiento_inventario: {
         Args: { p_producto_id: string; p_tipo: TipoMovInventario; p_cantidad: number };
         Returns: Database["public"]["Tables"]["productos"]["Row"];

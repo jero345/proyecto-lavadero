@@ -14,7 +14,12 @@ import { imprimirReciboDeOrden } from "@/lib/recibo-orden";
 import { CobrarOrdenDialog } from "@/components/CobrarOrdenDialog";
 import { EliminarOrdenButton } from "@/components/EliminarOrdenButton";
 import { CLASE_ESTADO, LABEL_ESTADO } from "@/lib/dominio";
-import { useOrdenesSinCobrar } from "@/hooks/queries";
+import {
+  useOrdenesSinCobrar,
+  aplanarEmpleado,
+  SELECT_ORDEN_CON_EMPLEADO,
+  type OrdenConEmpleado,
+} from "@/hooks/queries";
 import { useRealtimeOrdenes } from "@/hooks/useRealtimeOrdenes";
 import type { EstadoOrden, Orden } from "@/types/database.types";
 
@@ -53,14 +58,14 @@ export default function Dashboard() {
   // Órdenes activas (no entregadas) — "vehículos en proceso".
   const { data: activas = [], isLoading: cargandoActivas } = useQuery({
     queryKey: ["dashboard", "activas"],
-    queryFn: async (): Promise<Orden[]> => {
+    queryFn: async (): Promise<OrdenConEmpleado[]> => {
       const { data, error } = await supabase
         .from("ordenes")
-        .select("*")
+        .select(SELECT_ORDEN_CON_EMPLEADO)
         .neq("estado", "entregado")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data;
+      return (data ?? []).map(aplanarEmpleado);
     },
   });
 
@@ -214,6 +219,11 @@ export default function Dashboard() {
                       <p className="text-xs text-muted-foreground">
                         {formatFechaHora(o.created_at)}
                       </p>
+                      {o.empleado_nombre && (
+                        <p className="mt-0.5 text-xs font-medium text-foreground">
+                          {o.empleado_nombre}
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <Badge className={CLASE_ESTADO[o.estado]} variant="outline">

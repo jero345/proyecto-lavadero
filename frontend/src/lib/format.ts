@@ -32,7 +32,21 @@ export function formatFecha(
   opciones?: Intl.DateTimeFormatOptions,
 ): string {
   if (!fecha) return "—";
-  const d = typeof fecha === "string" ? new Date(fecha) : fecha;
+  let d: Date;
+  if (typeof fecha === "string") {
+    // Un string "solo fecha" (YYYY-MM-DD, sin hora) lo interpreta JS como UTC
+    // medianoche; en Colombia (UTC-5) eso retrocede al día anterior. Lo parseamos
+    // como fecha LOCAL para que muestre el día correcto (ej. nómina).
+    const soloFecha = /^\d{4}-\d{2}-\d{2}$/.test(fecha);
+    if (soloFecha) {
+      const [y, m, day] = fecha.split("-").map(Number);
+      d = new Date(y, m - 1, day);
+    } else {
+      d = new Date(fecha);
+    }
+  } else {
+    d = fecha;
+  }
   return new Intl.DateTimeFormat("es-CO", {
     day: "2-digit",
     month: "short",

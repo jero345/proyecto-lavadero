@@ -3,6 +3,20 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { Cliente, Empleado, Orden, Servicio } from "@/types/database.types";
 
+/** Orden + nombre del empleado asignado (todos sus ítems comparten empleado). */
+export type OrdenConEmpleado = Orden & { empleado_nombre: string | null };
+
+/** Extrae el nombre del empleado de los ítems embebidos y lo aplana en la orden. */
+export function aplanarEmpleado(o: Record<string, unknown>): OrdenConEmpleado {
+  const { orden_items, ...orden } = o as Orden & {
+    orden_items?: { empleado?: { nombre?: string | null } | null }[];
+  };
+  const nombre = orden_items?.[0]?.empleado?.nombre ?? null;
+  return { ...(orden as Orden), empleado_nombre: nombre };
+}
+/** Select de órdenes con el empleado asignado embebido (vía orden_items). */
+export const SELECT_ORDEN_CON_EMPLEADO = "*, orden_items(empleado:empleados(nombre))";
+
 /** Empleados (roster) activos para asignar en órdenes/nómina. */
 export function useEmpleados() {
   return useQuery({
@@ -52,13 +66,13 @@ export function useClientes() {
 export function useOrdenes() {
   return useQuery({
     queryKey: ["ordenes", "todas"],
-    queryFn: async (): Promise<Orden[]> => {
+    queryFn: async (): Promise<OrdenConEmpleado[]> => {
       const { data, error } = await supabase
         .from("ordenes")
-        .select("*")
+        .select(SELECT_ORDEN_CON_EMPLEADO)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data;
+      return (data ?? []).map(aplanarEmpleado);
     },
   });
 }

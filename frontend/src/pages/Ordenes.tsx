@@ -157,6 +157,7 @@ export default function Ordenes() {
                   <TableRow>
                     <TableHead>Fecha</TableHead>
                     <TableHead>Placa</TableHead>
+                    <TableHead>Empleado</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead>Pago</TableHead>
                     {isStaff && <TableHead className="text-right">Total</TableHead>}
@@ -170,6 +171,9 @@ export default function Ordenes() {
                         {formatFechaHora(o.created_at)}
                       </TableCell>
                       <TableCell className="font-medium">{o.placa || "—"}</TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {o.empleado_nombre || "—"}
+                      </TableCell>
                       <TableCell>
                         <Badge variant="outline" className={CLASE_ESTADO[o.estado]}>
                           {LABEL_ESTADO[o.estado]}

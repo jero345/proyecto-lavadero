@@ -23,6 +23,8 @@ import {
 import { formatCOP, formatFechaHora } from "@/lib/format";
 import { LABEL_METODO_PAGO } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/useAuth";
+import { EliminarMovimientoButton } from "@/components/EliminarMovimientoButton";
 import type { CajaMovimiento, CajaTipo, TipoMovCaja } from "@/types/database.types";
 
 type FiltroCaja = CajaTipo | "todas";
@@ -35,6 +37,7 @@ const LABEL_CAJA: Record<CajaTipo, string> = {
 };
 
 export default function Movimientos() {
+  const { isSuperAdmin } = useAuth();
   const [busqueda, setBusqueda] = useState("");
   const [caja, setCaja] = useState<FiltroCaja>("todas");
   const [tipo, setTipo] = useState<FiltroTipo>("todos");
@@ -146,6 +149,7 @@ export default function Movimientos() {
                     <TableHead>Método</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead className="text-right">Monto</TableHead>
+                    {isSuperAdmin && <TableHead className="text-right">Acciones</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -181,6 +185,15 @@ export default function Movimientos() {
                         {m.tipo === "egreso" ? "-" : ""}
                         {formatCOP(m.monto)}
                       </TableCell>
+                      {isSuperAdmin && (
+                        <TableCell className="text-right">
+                          {m.cierre_id == null && m.orden_id == null ? (
+                            <EliminarMovimientoButton movimiento={m} />
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
