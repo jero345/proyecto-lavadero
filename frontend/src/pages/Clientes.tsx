@@ -30,6 +30,40 @@ import { supabase } from "@/lib/supabase";
 import { useClientes } from "@/hooks/queries";
 import type { Cliente, Orden } from "@/types/database.types";
 
+/** Normaliza un texto para comparar sin importar mayúsculas/espacios. */
+function normalizar(texto: string): string {
+  return texto.trim().toUpperCase().replace(/\s+/g, "");
+}
+
+/**
+ * Bloquea clientes duplicados: si ya existe uno con la MISMA placa (o el mismo
+ * nombre cuando no hay placa), lanza un error legible. `excluirId` sirve al
+ * editar, para no chocar consigo mismo. Compara normalizado (sin mayúsculas ni
+ * espacios) para atrapar "ABC 123" vs "abc123".
+ */
+async function verificarClienteDuplicado(
+  placa: string,
+  nombre: string,
+  excluirId?: string,
+): Promise<void> {
+  const placaNorm = normalizar(placa);
+  const nombreNorm = normalizar(nombre);
+
+  const { data, error } = await supabase.from("clientes").select("id, placa, nombre");
+  if (error) throw error;
+
+  for (const c of data ?? []) {
+    if (excluirId && c.id === excluirId) continue;
+    if (placaNorm && normalizar(c.placa ?? "") === placaNorm) {
+      throw new Error(`Ya existe un cliente con la placa ${placa.trim().toUpperCase()}`);
+    }
+    // Solo comparamos por nombre cuando el nuevo cliente NO tiene placa.
+    if (!placaNorm && nombreNorm && normalizar(c.nombre ?? "") === nombreNorm) {
+      throw new Error(`Ya existe un cliente con el nombre "${nombre.trim()}"`);
+    }
+  }
+}
+
 /**
  * Normaliza un teléfono al formato que espera wa.me (E.164 sin "+"): solo
  * dígitos, con indicativo de país. En Colombia los celulares son 10 dígitos;
@@ -183,6 +217,8 @@ function EditarCliente({
       const placaLimpia = placa.trim().toUpperCase();
       const nombreLimpio = nombre.trim();
       if (!placaLimpia && !nombreLimpio) throw new Error("Ingresá la placa (o el nombre)");
+      // No permitir chocar con OTRO cliente ya existente (mismo placa/nombre).
+      await verificarClienteDuplicado(placaLimpia, nombreLimpio, cliente.id);
       const { data, error } = await supabase
         .from("clientes")
         .update({
@@ -260,6 +296,8 @@ function NuevoCliente({ onCreado }: { onCreado: () => void }) {
       const placaLimpia = placa.trim().toUpperCase();
       const nombreLimpio = nombre.trim();
       if (!placaLimpia && !nombreLimpio) throw new Error("Ingresá la placa (o el nombre)");
+      // No permitir clientes duplicados: misma placa, o mismo nombre si no hay placa.
+      await verificarClienteDuplicado(placaLimpia, nombreLimpio);
       const { error } = await supabase.from("clientes").insert({
         nombre: nombreLimpio || placaLimpia,
         placa: placaLimpia || null,
