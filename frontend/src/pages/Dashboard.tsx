@@ -86,13 +86,18 @@ export default function Dashboard() {
     },
   });
 
-  // Órdenes visibles en el tablero: solo las posteriores al último cierre.
+  // Órdenes visibles en el tablero. El cierre de nómina limpia el tablero, PERO
+  // una orden SIN COBRAR nunca se oculta (si no, se perdería el cobro): solo se
+  // quitan las que ya están cobradas y son previas al último cierre.
   const cierreMs = ultimoCierreNomina ? new Date(ultimoCierreNomina).getTime() : null;
   const activasVisibles = useMemo(
     () =>
       cierreMs == null
         ? activas
-        : activas.filter((o) => new Date(o.created_at).getTime() > cierreMs),
+        : activas.filter(
+            (o) =>
+              o.metodo_pago == null || new Date(o.created_at).getTime() > cierreMs,
+          ),
     [activas, cierreMs],
   );
 
