@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { History, Loader2, Pencil, Phone, Plus, Search } from "lucide-react";
+import { History, Loader2, MessageCircle, Pencil, Phone, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,18 @@ import { CLASE_ESTADO, LABEL_ESTADO } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
 import { useClientes } from "@/hooks/queries";
 import type { Cliente, Orden } from "@/types/database.types";
+
+/**
+ * Normaliza un teléfono al formato que espera wa.me (E.164 sin "+"): solo
+ * dígitos, con indicativo de país. En Colombia los celulares son 10 dígitos;
+ * si no traen el 57 adelante, se lo agregamos.
+ */
+function numeroWhatsApp(telefono: string): string {
+  const digitos = telefono.replace(/\D/g, "");
+  if (digitos.startsWith("57")) return digitos;
+  if (digitos.length === 10) return `57${digitos}`;
+  return digitos;
+}
 
 export default function Clientes() {
   const queryClient = useQueryClient();
@@ -97,12 +109,29 @@ export default function Clientes() {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         {c.telefono && (
-                          <Button asChild variant="ghost" size="sm">
-                            <a href={`tel:${c.telefono.replace(/\s+/g, "")}`}>
-                              <Phone className="h-4 w-4" />
-                              Llamar
-                            </a>
-                          </Button>
+                          <>
+                            <Button asChild variant="ghost" size="sm">
+                              <a href={`tel:${c.telefono.replace(/\s+/g, "")}`}>
+                                <Phone className="h-4 w-4" />
+                                Llamar
+                              </a>
+                            </Button>
+                            <Button
+                              asChild
+                              variant="ghost"
+                              size="sm"
+                              className="text-green-600 hover:text-green-700"
+                            >
+                              <a
+                                href={`https://wa.me/${numeroWhatsApp(c.telefono)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <MessageCircle className="h-4 w-4" />
+                                WhatsApp
+                              </a>
+                            </Button>
+                          </>
                         )}
                         <Button variant="ghost" size="sm" onClick={() => setEditandoDe(c)}>
                           <Pencil className="h-4 w-4" />

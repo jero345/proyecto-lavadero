@@ -69,6 +69,33 @@ export default function Dashboard() {
     },
   });
 
+  // Momento del último cierre de nómina. El tablero "Vehículos en proceso" solo
+  // muestra órdenes creadas DESPUÉS de ese cierre: al liquidar nómina, el tablero
+  // se limpia solo (las órdenes NO se borran; siguen en Órdenes y en la caja).
+  const { data: ultimoCierreNomina = null } = useQuery({
+    queryKey: ["dashboard", "ultimo-cierre-nomina"],
+    queryFn: async (): Promise<string | null> => {
+      const { data, error } = await supabase
+        .from("nomina_liquidaciones")
+        .select("created_at")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data?.created_at ?? null;
+    },
+  });
+
+  // Órdenes visibles en el tablero: solo las posteriores al último cierre.
+  const cierreMs = ultimoCierreNomina ? new Date(ultimoCierreNomina).getTime() : null;
+  const activasVisibles = useMemo(
+    () =>
+      cierreMs == null
+        ? activas
+        : activas.filter((o) => new Date(o.created_at).getTime() > cierreMs),
+    [activas, cierreMs],
+  );
+
   // Órdenes de hoy (para KPIs).
   const { data: hoy = [] } = useQuery({
     queryKey: ["dashboard", "hoy"],
@@ -170,7 +197,7 @@ export default function Dashboard() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard
           titulo="Vehículos en proceso"
-          valor={activas.length.toString()}
+          valor={activasVisibles.length.toString()}
           icon={<Car className="h-5 w-5" />}
           color="bg-blue-100 text-blue-600"
         />
@@ -203,13 +230,13 @@ export default function Dashboard() {
               <Skeleton className="h-16 w-full" />
               <Skeleton className="h-16 w-full" />
             </div>
-          ) : activas.length === 0 ? (
+          ) : activasVisibles.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               No hay vehículos en proceso.
             </p>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {activas.map((o) => (
+              {activasVisibles.map((o) => (
                 <div key={o.id} className="rounded-lg border p-4">
                   <div className="flex items-start justify-between">
                     <div>

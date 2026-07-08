@@ -96,6 +96,8 @@ export default function Nomina() {
       // La liquidación mete un egreso en la caja principal.
       queryClient.invalidateQueries({ queryKey: ["nomina"] });
       queryClient.invalidateQueries({ queryKey: ["caja"] });
+      // El tablero de la dashboard se limpia con el nuevo cierre de nómina.
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
     onError: (e: unknown) =>
       toast.error("No se pudo liquidar", {
