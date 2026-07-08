@@ -36,6 +36,25 @@ function normalizar(texto: string): string {
 }
 
 /**
+ * Traduce el error de índice único de la base (código 23505, cuando dos guardan
+ * la misma placa "a la vez" y el pre-chequeo no alcanzó) a un mensaje legible.
+ */
+function traducirErrorCliente(
+  error: { code?: string },
+  placa: string,
+  nombre: string,
+): Error {
+  if (error.code === "23505") {
+    return new Error(
+      placa
+        ? `Ya existe un cliente con la placa ${placa}`
+        : `Ya existe un cliente con el nombre "${nombre}"`,
+    );
+  }
+  return error as unknown as Error;
+}
+
+/**
  * Bloquea clientes duplicados: si ya existe uno con la MISMA placa (o el mismo
  * nombre cuando no hay placa), lanza un error legible. `excluirId` sirve al
  * editar, para no chocar consigo mismo. Compara normalizado (sin mayúsculas ni
@@ -228,7 +247,7 @@ function EditarCliente({
         })
         .eq("id", cliente.id)
         .select();
-      if (error) throw error;
+      if (error) throw traducirErrorCliente(error, placaLimpia, nombreLimpio);
       // Con RLS, un update sin permiso afecta 0 filas SIN lanzar error.
       // Lo detectamos para no mostrar un falso "guardado".
       if (!data || data.length === 0) {
@@ -303,7 +322,7 @@ function NuevoCliente({ onCreado }: { onCreado: () => void }) {
         placa: placaLimpia || null,
         telefono: telefono.trim() || null,
       });
-      if (error) throw error;
+      if (error) throw traducirErrorCliente(error, placaLimpia, nombreLimpio);
     },
     onSuccess: () => {
       toast.success("Cliente agregado");
