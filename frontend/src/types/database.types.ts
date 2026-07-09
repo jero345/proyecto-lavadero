@@ -346,6 +346,16 @@ export type Database = {
         Args: { p_mov_id: string };
         Returns: undefined;
       };
+      editar_movimiento: {
+        Args: {
+          p_mov_id: string;
+          p_tipo: TipoMovCaja;
+          p_concepto: string | null;
+          p_metodo_pago: MetodoPago;
+          p_monto: number;
+        };
+        Returns: Database["public"]["Tables"]["caja_movimientos"]["Row"];
+      };
       registrar_movimiento_inventario: {
         Args: { p_producto_id: string; p_tipo: TipoMovInventario; p_cantidad: number };
         Returns: Database["public"]["Tables"]["productos"]["Row"];

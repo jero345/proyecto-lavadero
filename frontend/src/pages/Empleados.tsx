@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Info, Loader2, Pencil, Plus } from "lucide-react";
+import { Info, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -23,11 +23,24 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/useAuth";
 import type { Empleado } from "@/types/database.types";
 
 export default function Empleados() {
   const queryClient = useQueryClient();
+  const { isStaff } = useAuth();
   const [editando, setEditando] = useState<Empleado | null>(null);
 
   const { data: empleados = [] } = useQuery({
@@ -97,9 +110,14 @@ export default function Empleados() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => setEditando(e)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => setEditando(e)}>
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        {isStaff && (
+                          <EliminarEmpleadoButton empleado={e} onEliminado={invalidar} />
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -122,6 +140,82 @@ export default function Empleados() {
         )}
       </Dialog>
     </div>
+  );
+}
+
+/**
+ * Botón para eliminar un empleado (staff). Si el empleado ya tiene órdenes o
+ * nómina, la base lo impide (FK): mostramos un mensaje claro sugiriendo
+ * desactivarlo en su lugar (conserva el historial).
+ */
+function EliminarEmpleadoButton({
+  empleado,
+  onEliminado,
+}: {
+  empleado: Empleado;
+  onEliminado: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const eliminar = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("empleados").delete().eq("id", empleado.id);
+      if (error) {
+        // 23503 = FK: el empleado está referenciado en órdenes/nómina.
+        if ((error as { code?: string }).code === "23503") {
+          throw new Error(
+            "Tiene órdenes o nómina registradas. Desactívalo (en Editar) en vez de eliminarlo.",
+          );
+        }
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      toast.success("Empleado eliminado");
+      onEliminado();
+      setOpen(false);
+    },
+    onError: (e: unknown) =>
+      toast.error("No se pudo eliminar", {
+        description: e instanceof Error ? e.message : "",
+      }),
+  });
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+          title="Eliminar empleado"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Eliminar a {empleado.nombre}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Esta acción no se puede deshacer. Si el empleado ya trabajó en órdenes
+            o tiene nómina, no se podrá eliminar (mejor desactivarlo).
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={eliminar.isPending}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            disabled={eliminar.isPending}
+            onClick={(ev) => {
+              ev.preventDefault();
+              eliminar.mutate();
+            }}
+          >
+            {eliminar.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Eliminar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

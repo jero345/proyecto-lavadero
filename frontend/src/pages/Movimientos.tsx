@@ -1,8 +1,11 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, Pencil, Search } from "lucide-react";
+import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -14,6 +17,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -21,11 +31,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatCOP, formatFechaHora } from "@/lib/format";
-import { LABEL_METODO_PAGO } from "@/lib/dominio";
+import { LABEL_METODO_PAGO, METODOS_PAGO } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { EliminarMovimientoButton } from "@/components/EliminarMovimientoButton";
-import type { CajaMovimiento, CajaTipo, TipoMovCaja } from "@/types/database.types";
+import type {
+  CajaMovimiento,
+  CajaTipo,
+  MetodoPago,
+  TipoMovCaja,
+} from "@/types/database.types";
 
 type FiltroCaja = CajaTipo | "todas";
 type FiltroTipo = TipoMovCaja | "todos";
@@ -37,11 +52,12 @@ const LABEL_CAJA: Record<CajaTipo, string> = {
 };
 
 export default function Movimientos() {
-  const { isSuperAdmin } = useAuth();
+  const { isStaff } = useAuth();
   const [busqueda, setBusqueda] = useState("");
   const [caja, setCaja] = useState<FiltroCaja>("todas");
   const [tipo, setTipo] = useState<FiltroTipo>("todos");
   const [estado, setEstado] = useState<FiltroEstado>("todos");
+  const [editando, setEditando] = useState<CajaMovimiento | null>(null);
 
   const { data: movimientos = [], isLoading } = useQuery({
     queryKey: ["caja", "movimientos", "todos"],
@@ -81,9 +97,18 @@ export default function Movimientos() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">Movimientos</h2>
-        <span className="text-sm text-muted-foreground">
-          {filtrados.length} movimiento(s) · Neto {formatCOP(total)}
-        </span>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">
+            {filtrados.length} movimiento(s) · Total (ingresos − egresos):
+          </span>
+          <span
+            className={`text-base font-bold ${
+              total < 0 ? "text-destructive" : "text-emerald-600"
+            }`}
+          >
+            {formatCOP(total)}
+          </span>
+        </div>
       </div>
 
       {/* Filtros */}
@@ -149,7 +174,7 @@ export default function Movimientos() {
                     <TableHead>Método</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead className="text-right">Monto</TableHead>
-                    {isSuperAdmin && <TableHead className="text-right">Acciones</TableHead>}
+                    {isStaff && <TableHead className="text-right">Acciones</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -185,10 +210,20 @@ export default function Movimientos() {
                         {m.tipo === "egreso" ? "-" : ""}
                         {formatCOP(m.monto)}
                       </TableCell>
-                      {isSuperAdmin && (
+                      {isStaff && (
                         <TableCell className="text-right">
                           {m.cierre_id == null && m.orden_id == null ? (
-                            <EliminarMovimientoButton movimiento={m} />
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title="Editar movimiento"
+                                onClick={() => setEditando(m)}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <EliminarMovimientoButton movimiento={m} />
+                            </div>
                           ) : (
                             <span className="text-xs text-muted-foreground">—</span>
                           )}
@@ -202,6 +237,119 @@ export default function Movimientos() {
           )}
         </CardContent>
       </Card>
+
+      {editando && (
+        <EditarMovimientoDialog
+          key={editando.id}
+          movimiento={editando}
+          onClose={() => setEditando(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/** Diálogo para editar un movimiento de caja suelto (staff). */
+function EditarMovimientoDialog({
+  movimiento,
+  onClose,
+}: {
+  movimiento: CajaMovimiento;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [tipo, setTipo] = useState<TipoMovCaja>(movimiento.tipo);
+  const [concepto, setConcepto] = useState(movimiento.concepto ?? "");
+  const [metodo, setMetodo] = useState<MetodoPago>(movimiento.metodo_pago ?? "efectivo");
+  const [monto, setMonto] = useState(String(movimiento.monto));
+
+  const guardar = useMutation({
+    mutationFn: async () => {
+      const valor = Number(monto);
+      if (!Number.isFinite(valor) || valor < 0) throw new Error("Monto inválido");
+      const { error } = await supabase.rpc("editar_movimiento", {
+        p_mov_id: movimiento.id,
+        p_tipo: tipo,
+        p_concepto: concepto.trim() || null,
+        p_metodo_pago: metodo,
+        p_monto: valor,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Movimiento actualizado");
+      queryClient.invalidateQueries({ queryKey: ["caja"] });
+      onClose();
+    },
+    onError: (e: unknown) =>
+      toast.error("No se pudo actualizar", {
+        description: e instanceof Error ? e.message : "",
+      }),
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Editar movimiento</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>Tipo</Label>
+            <Select value={tipo} onValueChange={(v) => setTipo(v as TipoMovCaja)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ingreso">Ingreso</SelectItem>
+                <SelectItem value="egreso">Egreso</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="em-concepto">Concepto</Label>
+            <Input
+              id="em-concepto"
+              value={concepto}
+              onChange={(e) => setConcepto(e.target.value)}
+              placeholder="Ej: compra de insumos"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Método</Label>
+              <Select value={metodo} onValueChange={(v) => setMetodo(v as MetodoPago)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {METODOS_PAGO.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="em-monto">Monto</Label>
+              <Input
+                id="em-monto"
+                type="number"
+                min={0}
+                value={monto}
+                onChange={(e) => setMonto(e.target.value)}
+              />
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button onClick={() => guardar.mutate()} disabled={guardar.isPending}>
+            {guardar.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Guardar cambios
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,6 +1,15 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { History, Loader2, MessageCircle, Pencil, Phone, Plus, Search } from "lucide-react";
+import {
+  History,
+  Loader2,
+  MessageCircle,
+  Pencil,
+  Phone,
+  Plus,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -8,6 +17,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   Table,
   TableBody,
@@ -27,8 +47,75 @@ import {
 import { formatCOP, formatFechaHora } from "@/lib/format";
 import { CLASE_ESTADO, LABEL_ESTADO } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/useAuth";
 import { useClientes } from "@/hooks/queries";
 import type { Cliente, Orden } from "@/types/database.types";
+
+/** Botón para eliminar un cliente (staff), con confirmación. */
+function EliminarClienteButton({
+  cliente,
+  onEliminado,
+}: {
+  cliente: Cliente;
+  onEliminado: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const eliminar = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("clientes").delete().eq("id", cliente.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Cliente eliminado");
+      onEliminado();
+      setOpen(false);
+    },
+    onError: (e: unknown) =>
+      toast.error("No se pudo eliminar", {
+        description: e instanceof Error ? e.message : "",
+      }),
+  });
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+        >
+          <Trash2 className="h-4 w-4" />
+          Eliminar
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            ¿Eliminar a {cliente.placa || cliente.nombre}?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            Esta acción no se puede deshacer. Las órdenes de este cliente se
+            conservan, pero quedan sin cliente asociado.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={eliminar.isPending}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            disabled={eliminar.isPending}
+            onClick={(e) => {
+              e.preventDefault();
+              eliminar.mutate();
+            }}
+          >
+            {eliminar.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Eliminar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
 
 /** Normaliza un texto para comparar sin importar mayúsculas/espacios. */
 function normalizar(texto: string): string {
@@ -97,6 +184,7 @@ function numeroWhatsApp(telefono: string): string {
 
 export default function Clientes() {
   const queryClient = useQueryClient();
+  const { isStaff } = useAuth();
   const { data: clientes = [] } = useClientes();
   const [historialDe, setHistorialDe] = useState<Cliente | null>(null);
   const [editandoDe, setEditandoDe] = useState<Cliente | null>(null);
@@ -194,6 +282,9 @@ export default function Clientes() {
                           <History className="h-4 w-4" />
                           Historial
                         </Button>
+                        {isStaff && (
+                          <EliminarClienteButton cliente={c} onEliminado={invalidar} />
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
