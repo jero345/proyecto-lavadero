@@ -39,6 +39,17 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import type { Empleado } from "@/types/database.types";
 
+/**
+ * Fecha local en formato YYYY-MM-DD. No usar toISOString() (convierte a UTC y
+ * en Colombia devuelve el día anterior de noche).
+ */
+function fechaLocalISO(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export default function Empleados() {
   const queryClient = useQueryClient();
   const { isStaff } = useAuth();
@@ -323,6 +334,8 @@ function EditarEmpleado({
   const [telefono, setTelefono] = useState(empleado.telefono ?? "");
   const [comision, setComision] = useState(String(empleado.porcentaje_comision));
   const [activo, setActivo] = useState(empleado.activo);
+  const fechaIngresoInicial = fechaLocalISO(new Date(empleado.created_at));
+  const [fechaIngreso, setFechaIngreso] = useState(fechaIngresoInicial);
 
   const guardar = useMutation({
     mutationFn: async () => {
@@ -330,14 +343,30 @@ function EditarEmpleado({
       const pct = Number(comision);
       if (!Number.isFinite(pct) || pct < 0 || pct > 100)
         throw new Error("La comisión debe estar entre 0 y 100");
+
+      const cambios: {
+        nombre: string;
+        telefono: string | null;
+        porcentaje_comision: number;
+        activo: boolean;
+        created_at?: string;
+      } = {
+        nombre: nombre.trim(),
+        telefono: telefono.trim() || null,
+        porcentaje_comision: pct,
+        activo,
+      };
+      // Solo tocamos la fecha de ingreso si el usuario la cambió. Se guarda al
+      // mediodía local para que se muestre el mismo día sin correrse por zona
+      // horaria.
+      if (fechaIngreso && fechaIngreso !== fechaIngresoInicial) {
+        const [y, m, d] = fechaIngreso.split("-").map(Number);
+        cambios.created_at = new Date(y, m - 1, d, 12, 0, 0).toISOString();
+      }
+
       const { error } = await supabase
         .from("empleados")
-        .update({
-          nombre: nombre.trim(),
-          telefono: telefono.trim() || null,
-          porcentaje_comision: pct,
-          activo,
-        })
+        .update(cambios)
         .eq("id", empleado.id);
       if (error) throw error;
     },
@@ -382,6 +411,15 @@ function EditarEmpleado({
             max={100}
             value={comision}
             onChange={(e) => setComision(e.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="ee-ingreso">Fecha de ingreso</Label>
+          <Input
+            id="ee-ingreso"
+            type="date"
+            value={fechaIngreso}
+            onChange={(e) => setFechaIngreso(e.target.value)}
           />
         </div>
         <label className="flex items-center gap-2 text-sm">
