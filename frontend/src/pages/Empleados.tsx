@@ -34,6 +34,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { formatFecha } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import type { Empleado } from "@/types/database.types";
@@ -87,6 +88,7 @@ export default function Empleados() {
                 <TableRow>
                   <TableHead>Nombre</TableHead>
                   <TableHead>Teléfono</TableHead>
+                  <TableHead>Ingreso</TableHead>
                   <TableHead className="text-right">Comisión</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead className="text-right">Acción</TableHead>
@@ -98,6 +100,9 @@ export default function Empleados() {
                     <TableCell className="font-medium">{e.nombre}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {e.telefono || "—"}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                      {formatFecha(e.created_at)}
                     </TableCell>
                     <TableCell className="text-right">
                       {e.porcentaje_comision}%
