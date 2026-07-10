@@ -34,12 +34,13 @@ export function numeroRecibo(idOrOrden: string | Orden): string {
 function construirHTML(opts: {
   numero: string;
   fecha: string;
+  horaSalida?: string | null;
   lineaRef?: string;
   items: ReciboItem[];
   total: number;
   metodo: MetodoPago | null;
 }): string {
-  const { numero, fecha, lineaRef, items, total, metodo } = opts;
+  const { numero, fecha, horaSalida, lineaRef, items, total, metodo } = opts;
 
   const filas = items
     .map(
@@ -53,6 +54,9 @@ function construirHTML(opts: {
     : `<div class="row bold"><span>** PENDIENTE DE PAGO **</span><span class="r"></span></div>`;
 
   const filaRef = lineaRef ? `<div class="small">${esc(lineaRef)}</div>` : "";
+  const filaSalida = horaSalida
+    ? `<div class="small">Salida: ${esc(horaSalida)}</div>`
+    : "";
 
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8">
@@ -88,6 +92,7 @@ function construirHTML(opts: {
     <div class="center small">N° ${esc(numero)}</div>
     <div class="small">${esc(fecha)}</div>
     ${filaRef}
+    ${filaSalida}
 
     <div class="sep"></div>
     <table>${filas}</table>
@@ -171,6 +176,9 @@ export function imprimirReciboOrden(opts: {
     construirHTML({
       numero: numeroRecibo(opts.orden),
       fecha: formatFechaHora(opts.orden.created_at),
+      horaSalida: opts.orden.entregado_at
+        ? formatFechaHora(opts.orden.entregado_at)
+        : null,
       lineaRef: `Placa: ${opts.orden.placa || "—"}`,
       items: opts.items,
       total: Number(opts.orden.total),

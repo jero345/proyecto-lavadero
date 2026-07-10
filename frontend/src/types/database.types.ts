@@ -112,6 +112,7 @@ export type Database = {
           observaciones: string | null;
           created_by: string;
           created_at: string;
+          entregado_at: string | null;
         };
         Insert: {
           id?: string;
@@ -125,6 +126,7 @@ export type Database = {
           observaciones?: string | null;
           created_by: string;
           created_at?: string;
+          entregado_at?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["ordenes"]["Insert"]>;
         Relationships: [];

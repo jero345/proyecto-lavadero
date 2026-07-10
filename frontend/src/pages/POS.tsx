@@ -444,7 +444,7 @@ function ClientePicker({
         <span className={cn("truncate", !seleccionado && "text-muted-foreground")}>
           {seleccionado
             ? `${etiquetaCliente(seleccionado)}${seleccionado.telefono ? ` · ${seleccionado.telefono}` : ""}`
-            : "Sin cliente"}
+            : "Cliente creado"}
         </span>
         <span className="flex items-center gap-1">
           {seleccionado && (
