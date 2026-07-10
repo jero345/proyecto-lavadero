@@ -1,30 +1,36 @@
 // Etiquetas y metadatos de dominio (labels en español, colores de estado).
 import { Bike, Car, Truck, Gauge, type LucideIcon } from "lucide-react";
 
-import type {
-  EstadoOrden,
-  MetodoPago,
-  TipoVehiculo,
-} from "@/types/database.types";
+import type { EstadoOrden, MetodoPago } from "@/types/database.types";
 
-export const TIPOS_VEHICULO: {
-  value: TipoVehiculo;
-  label: string;
-  icon: LucideIcon;
-  color: string;
-}[] = [
-  { value: "moto", label: "Moto", icon: Bike, color: "bg-sky-100 text-sky-600" },
-  { value: "moto_alto", label: "Moto alto cil.", icon: Gauge, color: "bg-indigo-100 text-indigo-600" },
-  { value: "auto", label: "Auto", icon: Car, color: "bg-emerald-100 text-emerald-600" },
-  { value: "camioneta", label: "Camioneta", icon: Truck, color: "bg-amber-100 text-amber-600" },
+// Los tipos de vehículo ahora son un catálogo dinámico (tabla tipos_vehiculo).
+// Estos helpers dan un icono/color de UI a cada tipo. Los 4 base tienen su
+// icono; los tipos nuevos usan un icono y color por defecto (según su orden).
+const ICONO_TIPO: Record<string, LucideIcon> = {
+  moto: Bike,
+  moto_alto: Gauge,
+  auto: Car,
+  camioneta: Truck,
+};
+
+/** Icono para un tipo de vehículo (Car por defecto para tipos nuevos). */
+export function iconoTipoVehiculo(codigo: string): LucideIcon {
+  return ICONO_TIPO[codigo] ?? Car;
+}
+
+const COLORES_TIPO = [
+  "bg-sky-100 text-sky-600",
+  "bg-indigo-100 text-indigo-600",
+  "bg-emerald-100 text-emerald-600",
+  "bg-amber-100 text-amber-600",
+  "bg-rose-100 text-rose-600",
+  "bg-violet-100 text-violet-600",
 ];
 
-export const LABEL_TIPO_VEHICULO: Record<TipoVehiculo, string> = {
-  moto: "Moto",
-  moto_alto: "Moto alto cilindraje",
-  auto: "Auto",
-  camioneta: "Camioneta",
-};
+/** Color de fondo para el botón de un tipo de vehículo (ciclado por índice). */
+export function colorTipoVehiculo(indice: number): string {
+  return COLORES_TIPO[indice % COLORES_TIPO.length];
+}
 
 export const METODOS_PAGO: { value: MetodoPago; label: string }[] = [
   { value: "efectivo", label: "Efectivo" },

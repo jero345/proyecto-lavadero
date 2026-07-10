@@ -1,7 +1,27 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { supabase } from "@/lib/supabase";
-import type { Cliente, Empleado, Orden, Servicio } from "@/types/database.types";
+import type {
+  Cliente,
+  Empleado,
+  Orden,
+  Servicio,
+  TipoVehiculoRow,
+} from "@/types/database.types";
+
+/** Catálogo de tipos de vehículo. soloActivos=true para el POS/servicios. */
+export function useTiposVehiculo(soloActivos = true) {
+  return useQuery({
+    queryKey: ["tipos_vehiculo", soloActivos],
+    queryFn: async (): Promise<TipoVehiculoRow[]> => {
+      let q = supabase.from("tipos_vehiculo").select("*").order("orden").order("nombre");
+      if (soloActivos) q = q.eq("activo", true);
+      const { data, error } = await q;
+      if (error) throw error;
+      return data;
+    },
+  });
+}
 
 /** Orden + nombre del empleado asignado (todos sus ítems comparten empleado). */
 export type OrdenConEmpleado = Orden & { empleado_nombre: string | null };

@@ -25,9 +25,14 @@ import {
 import { cn } from "@/lib/utils";
 import { formatCOP } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
-import { TIPOS_VEHICULO, METODOS_PAGO } from "@/lib/dominio";
+import { METODOS_PAGO, iconoTipoVehiculo, colorTipoVehiculo } from "@/lib/dominio";
 import { useAuth } from "@/hooks/useAuth";
-import { useClientes, useEmpleados, useServicios } from "@/hooks/queries";
+import {
+  useClientes,
+  useEmpleados,
+  useServicios,
+  useTiposVehiculo,
+} from "@/hooks/queries";
 import type { Cliente, MetodoPago, TipoVehiculo } from "@/types/database.types";
 
 export default function POS() {
@@ -37,6 +42,7 @@ export default function POS() {
   const { data: servicios = [], isLoading: cargandoServicios } = useServicios(true);
   const { data: empleados = [] } = useEmpleados();
   const { data: clientes = [] } = useClientes();
+  const { data: tiposVehiculo = [] } = useTiposVehiculo();
 
   const [tipo, setTipo] = useState<TipoVehiculo | null>(null);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
@@ -156,14 +162,14 @@ export default function POS() {
             <CardTitle className="text-base">Tipo de vehículo</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {TIPOS_VEHICULO.map((t) => {
-              const activo = tipo === t.value;
-              const Icon = t.icon;
+            {tiposVehiculo.map((t, i) => {
+              const activo = tipo === t.codigo;
+              const Icon = iconoTipoVehiculo(t.codigo);
               return (
                 <button
-                  key={t.value}
+                  key={t.codigo}
                   type="button"
-                  onClick={() => cambiarTipo(t.value)}
+                  onClick={() => cambiarTipo(t.codigo)}
                   className={cn(
                     "flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all",
                     activo
@@ -174,12 +180,14 @@ export default function POS() {
                   <span
                     className={cn(
                       "flex h-12 w-12 items-center justify-center rounded-full transition-colors",
-                      activo ? "bg-primary text-primary-foreground shadow-sm" : t.color,
+                      activo
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : colorTipoVehiculo(i),
                     )}
                   >
                     <Icon className="h-6 w-6" />
                   </span>
-                  <span className="text-sm font-medium">{t.label}</span>
+                  <span className="text-sm font-medium">{t.nombre}</span>
                 </button>
               );
             })}

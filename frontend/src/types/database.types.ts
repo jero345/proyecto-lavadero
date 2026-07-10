@@ -3,7 +3,9 @@
 //   supabase gen types typescript --project-id yyjmpwviokpldhcfbodn > src/types/database.types.ts
 
 export type Rol = "super_admin" | "admin" | "empleado";
-export type TipoVehiculo = "moto" | "moto_alto" | "auto" | "camioneta";
+// Tipo de vehículo = código del catálogo `tipos_vehiculo` (dinámico). Los 4
+// base son 'moto' | 'moto_alto' | 'auto' | 'camioneta', pero el staff crea más.
+export type TipoVehiculo = string;
 export type EstadoOrden = "en_proceso" | "completado" | "entregado";
 export type MetodoPago = "efectivo" | "qr" | "transferencia";
 export type TipoMovCaja = "ingreso" | "egreso";
@@ -69,6 +71,24 @@ export type Database = {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["empleados"]["Insert"]>;
+        Relationships: [];
+      };
+      tipos_vehiculo: {
+        Row: {
+          codigo: string;
+          nombre: string;
+          orden: number;
+          activo: boolean;
+          created_at: string;
+        };
+        Insert: {
+          codigo: string;
+          nombre: string;
+          orden?: number;
+          activo?: boolean;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["tipos_vehiculo"]["Insert"]>;
         Relationships: [];
       };
       vehiculos: {
@@ -376,6 +396,7 @@ export type Database = {
 export type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 export type Cliente = Database["public"]["Tables"]["clientes"]["Row"];
 export type Empleado = Database["public"]["Tables"]["empleados"]["Row"];
+export type TipoVehiculoRow = Database["public"]["Tables"]["tipos_vehiculo"]["Row"];
 export type Vehiculo = Database["public"]["Tables"]["vehiculos"]["Row"];
 export type Servicio = Database["public"]["Tables"]["servicios"]["Row"];
 export type Orden = Database["public"]["Tables"]["ordenes"]["Row"];
