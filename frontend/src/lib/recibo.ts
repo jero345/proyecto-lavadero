@@ -34,13 +34,14 @@ export function numeroRecibo(idOrOrden: string | Orden): string {
 function construirHTML(opts: {
   numero: string;
   fecha: string;
+  fechaLabel?: string;
   horaSalida?: string | null;
   lineaRef?: string;
   items: ReciboItem[];
   total: number;
   metodo: MetodoPago | null;
 }): string {
-  const { numero, fecha, horaSalida, lineaRef, items, total, metodo } = opts;
+  const { numero, fecha, fechaLabel, horaSalida, lineaRef, items, total, metodo } = opts;
 
   const filas = items
     .map(
@@ -54,6 +55,7 @@ function construirHTML(opts: {
     : `<div class="row bold"><span>** PENDIENTE DE PAGO **</span><span class="r"></span></div>`;
 
   const filaRef = lineaRef ? `<div class="small">${esc(lineaRef)}</div>` : "";
+  const textoFecha = fechaLabel ? `${esc(fechaLabel)}: ${esc(fecha)}` : esc(fecha);
   const filaSalida = horaSalida
     ? `<div class="small">Salida: ${esc(horaSalida)}</div>`
     : "";
@@ -90,9 +92,9 @@ function construirHTML(opts: {
     <div class="sep"></div>
     <div class="center bold">RECIBO DE VENTA</div>
     <div class="center small">N° ${esc(numero)}</div>
-    <div class="small">${esc(fecha)}</div>
-    ${filaRef}
+    <div class="small">${textoFecha}</div>
     ${filaSalida}
+    ${filaRef}
 
     <div class="sep"></div>
     <table>${filas}</table>
@@ -176,6 +178,7 @@ export function imprimirReciboOrden(opts: {
     construirHTML({
       numero: numeroRecibo(opts.orden),
       fecha: formatFechaHora(opts.orden.created_at),
+      fechaLabel: "Entrada",
       horaSalida: opts.orden.entregado_at
         ? formatFechaHora(opts.orden.entregado_at)
         : null,
