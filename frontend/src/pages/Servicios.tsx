@@ -1,9 +1,20 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Pencil, Plus } from "lucide-react";
+import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
@@ -123,23 +134,30 @@ export default function Servicios() {
                   </TableCell>
                   {isStaff && (
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() =>
-                          setEditando({
-                            id: s.id,
-                            categoria: s.categoria,
-                            nombre: s.nombre,
-                            descripcion: s.descripcion ?? "",
-                            tipo_vehiculo: s.tipo_vehiculo,
-                            precio: String(s.precio),
-                            activo: s.activo,
-                          })
-                        }
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() =>
+                            setEditando({
+                              id: s.id,
+                              categoria: s.categoria,
+                              nombre: s.nombre,
+                              descripcion: s.descripcion ?? "",
+                              tipo_vehiculo: s.tipo_vehiculo,
+                              precio: String(s.precio),
+                              activo: s.activo,
+                            })
+                          }
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <EliminarServicioButton
+                          id={s.id}
+                          nombre={s.nombre}
+                          onEliminado={invalidar}
+                        />
+                      </div>
                     </TableCell>
                   )}
                 </TableRow>
@@ -159,6 +177,82 @@ export default function Servicios() {
         }}
       />
     </div>
+  );
+}
+
+/**
+ * Botón para eliminar un servicio (staff). Si el servicio ya se usó en órdenes,
+ * la base lo impide (FK): mostramos un mensaje claro sugiriendo desactivarlo.
+ */
+function EliminarServicioButton({
+  id,
+  nombre,
+  onEliminado,
+}: {
+  id: string;
+  nombre: string;
+  onEliminado: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const eliminar = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("servicios").delete().eq("id", id);
+      if (error) {
+        if ((error as { code?: string }).code === "23503") {
+          throw new Error(
+            "Este servicio ya se usó en órdenes. Desactívalo (en Editar) en vez de eliminarlo.",
+          );
+        }
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      toast.success("Servicio eliminado");
+      onEliminado();
+      setOpen(false);
+    },
+    onError: (e: unknown) =>
+      toast.error("No se pudo eliminar", {
+        description: e instanceof Error ? e.message : "",
+      }),
+  });
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+          title="Eliminar servicio"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Eliminar “{nombre}”?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Esta acción no se puede deshacer. Si el servicio ya se usó en órdenes,
+            no se podrá eliminar (mejor desactivarlo).
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={eliminar.isPending}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            disabled={eliminar.isPending}
+            onClick={(ev) => {
+              ev.preventDefault();
+              eliminar.mutate();
+            }}
+          >
+            {eliminar.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Eliminar
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
