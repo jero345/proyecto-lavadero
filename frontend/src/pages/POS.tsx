@@ -154,10 +154,10 @@ export default function POS() {
   return (
     <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[1fr_360px]">
       {/* Panel izquierdo: selección. En móvil se "disuelve" (contents) para que
-          los datos del cliente queden antes que los servicios. */}
+          el tipo de vehículo y los servicios queden primero. */}
       <div className="contents lg:block lg:space-y-6">
         {/* 1. Tipo de vehículo */}
-        <Card className="order-2 lg:order-none">
+        <Card className="order-1 lg:order-none">
           <CardHeader>
             <CardTitle className="text-base">Tipo de vehículo</CardTitle>
           </CardHeader>
@@ -195,7 +195,7 @@ export default function POS() {
         </Card>
 
         {/* 2. Servicios */}
-        <Card className="order-3 lg:order-none">
+        <Card className="order-2 lg:order-none">
           <CardHeader>
             <CardTitle className="text-base">Servicios</CardTitle>
           </CardHeader>
@@ -260,9 +260,9 @@ export default function POS() {
         </Card>
       </div>
 
-      {/* Panel derecho: datos + cobro. En móvil van PRIMERO (order-1). */}
+      {/* Panel derecho: datos + cobro. En móvil van DESPUÉS de los servicios. */}
       <div className="contents lg:block lg:space-y-4 lg:sticky lg:top-0 lg:self-start">
-        <Card className="order-1 lg:order-none">
+        <Card className="order-3 lg:order-none">
           <CardHeader>
             <CardTitle className="text-base">Datos y cobro</CardTitle>
           </CardHeader>
@@ -277,22 +277,6 @@ export default function POS() {
                 value={clienteId}
                 onChange={setClienteId}
               />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Empleado</Label>
-              <Select value={empleadoId} onValueChange={setEmpleadoId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecciona empleado" />
-                </SelectTrigger>
-                <SelectContent>
-                  {empleados.map((e) => (
-                    <SelectItem key={e.id} value={e.id}>
-                      {e.nombre}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
 
             {isStaff && (
@@ -338,8 +322,29 @@ export default function POS() {
           </CardContent>
         </Card>
 
-        {/* Total + acción */}
+        {/* Empleado: va de último, ya con los servicios cargados. */}
         <Card className="order-4 lg:order-none">
+          <CardHeader>
+            <CardTitle className="text-base">Empleado</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Select value={empleadoId} onValueChange={setEmpleadoId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecciona empleado" />
+              </SelectTrigger>
+              <SelectContent>
+                {empleados.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>
+                    {e.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+
+        {/* Total + acción */}
+        <Card className="order-5 lg:order-none">
           <CardContent className="space-y-3 pt-6">
             <div className="flex items-center justify-between text-sm text-muted-foreground">
               <span>{seleccion.size} servicio(s)</span>
