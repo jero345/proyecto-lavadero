@@ -8,11 +8,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { formatCOP, formatFechaHora } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
 import { imprimirReciboDeOrden } from "@/lib/recibo-orden";
 import { CobrarOrdenDialog } from "@/components/CobrarOrdenDialog";
 import { EliminarOrdenButton } from "@/components/EliminarOrdenButton";
+import { AsignarEmpleadoButton } from "@/components/AsignarEmpleadoButton";
 import { CLASE_ESTADO, LABEL_ESTADO } from "@/lib/dominio";
 import {
   useOrdenesSinCobrar,
@@ -251,11 +253,16 @@ export default function Dashboard() {
                       <p className="text-xs text-muted-foreground">
                         {formatFechaHora(o.created_at)}
                       </p>
-                      {o.empleado_nombre && (
-                        <p className="mt-0.5 text-xs font-medium text-foreground">
-                          {o.empleado_nombre}
-                        </p>
-                      )}
+                      <p
+                        className={cn(
+                          "mt-0.5 text-xs font-medium",
+                          o.empleado_nombre
+                            ? "text-foreground"
+                            : "italic text-muted-foreground",
+                        )}
+                      >
+                        {o.empleado_nombre || "Sin empleado asignado"}
+                      </p>
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <Badge className={CLASE_ESTADO[o.estado]} variant="outline">
@@ -295,6 +302,10 @@ export default function Dashboard() {
                         )}
                         Recibo
                       </Button>
+                      <AsignarEmpleadoButton
+                        orden={o}
+                        empleadoNombre={o.empleado_nombre}
+                      />
                       {o.metodo_pago == null && (
                         <Button
                           size="sm"

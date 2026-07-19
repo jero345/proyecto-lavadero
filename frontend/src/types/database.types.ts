@@ -156,7 +156,7 @@ export type Database = {
           id: string;
           orden_id: string;
           servicio_id: string;
-          empleado_id: string;
+          empleado_id: string | null;
           precio: number;
           comision_porcentaje: number;
         };
@@ -164,7 +164,7 @@ export type Database = {
           id?: string;
           orden_id: string;
           servicio_id: string;
-          empleado_id: string;
+          empleado_id?: string | null;
           precio: number;
           comision_porcentaje?: number;
         };
@@ -208,6 +208,7 @@ export type Database = {
           total_qr: number;
           total_transferencia: number;
           total_egresos: number;
+          total_nomina: number;
           total_general: number;
           caja: CajaTipo;
           created_by: string;
@@ -220,6 +221,7 @@ export type Database = {
           total_qr?: number;
           total_transferencia?: number;
           total_egresos?: number;
+          total_nomina?: number;
           total_general?: number;
           caja?: CajaTipo;
           created_by: string;
@@ -328,7 +330,7 @@ export type Database = {
       crear_orden: {
         Args: {
           p_servicio_ids: string[];
-          p_empleado_id: string;
+          p_empleado_id: string | null;
           p_metodo_pago: MetodoPago | null;
           p_placa: string | null;
           p_cliente_id?: string | null;
@@ -341,6 +343,10 @@ export type Database = {
       };
       cobrar_orden: {
         Args: { p_orden_id: string; p_metodo_pago: MetodoPago };
+        Returns: Database["public"]["Tables"]["ordenes"]["Row"];
+      };
+      asignar_empleado_orden: {
+        Args: { p_orden_id: string; p_empleado_id: string };
         Returns: Database["public"]["Tables"]["ordenes"]["Row"];
       };
       cerrar_caja: {

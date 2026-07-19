@@ -93,7 +93,9 @@ export default function Caja() {
         t[m.metodo_pago] += monto;
       }
     }
-    t.general = t.efectivo + t.qr + t.transferencia - t.egresos - t.nomina;
+    // La nómina va 100% aparte: NO se resta del total en caja (solo ingresos
+    // menos egresos normales).
+    t.general = t.efectivo + t.qr + t.transferencia - t.egresos;
     return t;
   }, [abiertos]);
 
@@ -230,6 +232,7 @@ export default function Caja() {
                   <TableHead className="text-right">QR</TableHead>
                   <TableHead className="text-right">Transf.</TableHead>
                   <TableHead className="text-right">Egresos</TableHead>
+                  <TableHead className="text-right">Nómina</TableHead>
                   <TableHead className="text-right">General</TableHead>
                 </TableRow>
               </TableHeader>
@@ -243,7 +246,10 @@ export default function Caja() {
                     <TableCell className="text-right">{formatCOP(c.total_qr)}</TableCell>
                     <TableCell className="text-right">{formatCOP(c.total_transferencia)}</TableCell>
                     <TableCell className="text-right text-destructive">
-                      -{formatCOP(c.total_egresos)}
+                      {c.total_egresos > 0 ? "-" : ""}{formatCOP(c.total_egresos)}
+                    </TableCell>
+                    <TableCell className="text-right text-destructive">
+                      {c.total_nomina > 0 ? "-" : ""}{formatCOP(c.total_nomina)}
                     </TableCell>
                     <TableCell className="text-right font-semibold">
                       {formatCOP(c.total_general)}

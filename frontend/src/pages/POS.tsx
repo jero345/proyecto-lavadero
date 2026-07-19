@@ -104,7 +104,8 @@ export default function POS() {
     mutationFn: async () => {
       if (!profile) throw new Error("Sesión no válida");
       if (seleccion.size === 0) throw new Error("Selecciona al menos un servicio");
-      if (!empleadoId) throw new Error("Selecciona el empleado");
+      // El empleado es OPCIONAL: si no se elige, la orden queda "sin asignar" y
+      // se asigna luego desde el Dashboard.
       // El método de pago es OPCIONAL: si no se elige, la orden queda agendada
       // (pendiente de cobro) y se cobra luego desde el Dashboard.
       const cobrada = Boolean(metodoPago);
@@ -123,7 +124,7 @@ export default function POS() {
 
       const { data, error } = await supabase.rpc("crear_orden", {
         p_servicio_ids: Array.from(seleccion),
-        p_empleado_id: empleadoId,
+        p_empleado_id: empleadoId || null,
         p_metodo_pago: metodoPago || null,
         p_placa: placaCliente,
         p_cliente_id: clienteId || null,
@@ -322,17 +323,22 @@ export default function POS() {
           </CardContent>
         </Card>
 
-        {/* Empleado: va de último, ya con los servicios cargados. */}
+        {/* Empleado (opcional): va de último, ya con los servicios cargados.
+            Si se deja sin asignar, se asigna luego desde el Dashboard. */}
         <Card className="order-4 lg:order-none">
           <CardHeader>
-            <CardTitle className="text-base">Empleado</CardTitle>
+            <CardTitle className="text-base">Empleado (opcional)</CardTitle>
           </CardHeader>
           <CardContent>
-            <Select value={empleadoId} onValueChange={setEmpleadoId}>
+            <Select
+              value={empleadoId || "sin"}
+              onValueChange={(v) => setEmpleadoId(v === "sin" ? "" : v)}
+            >
               <SelectTrigger>
-                <SelectValue placeholder="Selecciona empleado" />
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="sin">Sin asignar (elegir luego)</SelectItem>
                 {empleados.map((e) => (
                   <SelectItem key={e.id} value={e.id}>
                     {e.nombre}
