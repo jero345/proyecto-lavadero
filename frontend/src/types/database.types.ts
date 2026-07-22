@@ -374,6 +374,10 @@ export type Database = {
         Args: { p_mov_id: string };
         Returns: undefined;
       };
+      eliminar_liquidacion: {
+        Args: { p_id: string };
+        Returns: undefined;
+      };
       editar_movimiento: {
         Args: {
           p_mov_id: string;

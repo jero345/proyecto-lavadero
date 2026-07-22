@@ -26,6 +26,8 @@ import { formatCOP, formatFecha } from "@/lib/format";
 import { METODOS_PAGO } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
 import { useEmpleados } from "@/hooks/queries";
+import { useAuth } from "@/hooks/useAuth";
+import { EliminarLiquidacionButton } from "@/components/EliminarLiquidacionButton";
 import type { MetodoPago, NominaLiquidacion } from "@/types/database.types";
 
 /**
@@ -48,6 +50,7 @@ function hoyISO() {
 
 export default function Nomina() {
   const queryClient = useQueryClient();
+  const { isStaff } = useAuth();
   const { data: empleados = [] } = useEmpleados();
 
   const [empleadoId, setEmpleadoId] = useState("");
@@ -196,6 +199,7 @@ export default function Nomina() {
                   <TableHead className="text-right">Facturado</TableHead>
                   <TableHead className="text-right">%</TableHead>
                   <TableHead className="text-right">A pagar</TableHead>
+                  {isStaff && <TableHead className="w-10" />}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -213,6 +217,14 @@ export default function Nomina() {
                     <TableCell className="text-right font-semibold text-primary">
                       {formatCOP(l.total_pagar)}
                     </TableCell>
+                    {isStaff && (
+                      <TableCell className="text-right">
+                        <EliminarLiquidacionButton
+                          liquidacion={l}
+                          nombreEmpleado={nombrePorId.get(l.empleado_id) ?? "—"}
+                        />
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
