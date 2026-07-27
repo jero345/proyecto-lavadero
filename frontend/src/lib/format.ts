@@ -65,3 +65,35 @@ export function formatFechaHora(fecha: string | Date | null | undefined): string
     minute: "2-digit",
   });
 }
+
+/**
+ * Convierte una fecha a "YYYY-MM-DDTHH:mm" (hora local), que es el formato que
+ * exige <input type="datetime-local">.
+ */
+export function aInputFechaHora(fecha: string | Date = new Date()): string {
+  const d = typeof fecha === "string" ? new Date(fecha) : fecha;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  );
+}
+
+/** Pasa el valor de un <input type="datetime-local"> a ISO (UTC) para la BD. */
+export function desdeInputFechaHora(valor: string): string {
+  const d = new Date(valor);
+  if (Number.isNaN(d.getTime())) throw new Error("Fecha inválida");
+  return d.toISOString();
+}
+
+/** true si la fecha cae en el día de hoy (hora local del equipo). */
+export function esHoy(fecha: string | Date): boolean {
+  const d = typeof fecha === "string" ? new Date(fecha) : fecha;
+  if (Number.isNaN(d.getTime())) return false;
+  const hoy = new Date();
+  return (
+    d.getFullYear() === hoy.getFullYear() &&
+    d.getMonth() === hoy.getMonth() &&
+    d.getDate() === hoy.getDate()
+  );
+}

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Pencil, Search } from "lucide-react";
+import { CalendarClock, Loader2, Pencil, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -30,11 +30,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatCOP, formatFechaHora } from "@/lib/format";
+import {
+  aInputFechaHora,
+  desdeInputFechaHora,
+  esHoy,
+  formatCOP,
+  formatFechaHora,
+} from "@/lib/format";
 import { LABEL_METODO_PAGO, METODOS_PAGO } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
 import { EliminarMovimientoButton } from "@/components/EliminarMovimientoButton";
+import { NuevoMovimientoDialog } from "@/components/NuevoMovimientoDialog";
 import type {
   CajaMovimiento,
   CajaTipo,
@@ -44,7 +51,7 @@ import type {
 
 type FiltroCaja = CajaTipo | "todas";
 type FiltroTipo = TipoMovCaja | "todos";
-type FiltroEstado = "todos" | "abiertos" | "cerrados";
+type FiltroEstado = "todos" | "abiertos" | "cerrados" | "fuera";
 
 const LABEL_CAJA: Record<CajaTipo, string> = {
   principal: "Principal",
@@ -77,38 +84,54 @@ export default function Movimientos() {
     return movimientos.filter((m) => {
       if (caja !== "todas" && m.caja !== caja) return false;
       if (tipo !== "todos" && m.tipo !== tipo) return false;
-      if (estado === "abiertos" && m.cierre_id != null) return false;
+      if (estado === "abiertos" && (m.cierre_id != null || m.fuera_de_caja)) return false;
       if (estado === "cerrados" && m.cierre_id == null) return false;
+      if (estado === "fuera" && !m.fuera_de_caja) return false;
       if (q && !(m.concepto ?? "").toLowerCase().includes(q)) return false;
       return true;
     });
   }, [movimientos, busqueda, caja, tipo, estado]);
 
-  const total = useMemo(
-    () =>
-      filtrados.reduce(
-        (acc, m) => acc + (m.tipo === "egreso" ? -Number(m.monto) : Number(m.monto)),
-        0,
-      ),
-    [filtrados],
-  );
+  const totales = useMemo(() => {
+    let ingresos = 0;
+    let egresos = 0;
+    for (const m of filtrados) {
+      if (m.tipo === "egreso") egresos += Number(m.monto);
+      else ingresos += Number(m.monto);
+    }
+    return { ingresos, egresos, neto: ingresos - egresos };
+  }, [filtrados]);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">Movimientos</h2>
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">
-            {filtrados.length} movimiento(s) · Total (ingresos − egresos):
-          </span>
-          <span
-            className={`text-base font-bold ${
-              total < 0 ? "text-destructive" : "text-emerald-600"
-            }`}
-          >
-            {formatCOP(total)}
-          </span>
+        <div>
+          <h2 className="text-lg font-semibold">Movimientos</h2>
+          <p className="text-xs text-muted-foreground">
+            Ingresos y egresos de cualquier fecha, incluso de días anteriores.
+          </p>
         </div>
+        {isStaff && <NuevoMovimientoDialog triggerLabel="Nuevo movimiento" />}
+      </div>
+
+      {/* Totales de lo que se está viendo (según filtros) */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <TotalTile titulo="Movimientos" texto={String(filtrados.length)} />
+        <TotalTile
+          titulo="Ingresos"
+          texto={formatCOP(totales.ingresos)}
+          className="text-emerald-600"
+        />
+        <TotalTile
+          titulo="Egresos"
+          texto={`${totales.egresos > 0 ? "-" : ""}${formatCOP(totales.egresos)}`}
+          className="text-destructive"
+        />
+        <TotalTile
+          titulo="Neto"
+          texto={formatCOP(totales.neto)}
+          className={totales.neto < 0 ? "text-destructive" : "text-primary"}
+        />
       </div>
 
       {/* Filtros */}
@@ -150,6 +173,7 @@ export default function Movimientos() {
             <SelectItem value="todos">Todos</SelectItem>
             <SelectItem value="abiertos">Sin cerrar</SelectItem>
             <SelectItem value="cerrados">Cerrados</SelectItem>
+            <SelectItem value="fuera">Fuera de caja</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -196,7 +220,15 @@ export default function Movimientos() {
                         {m.metodo_pago ? LABEL_METODO_PAGO[m.metodo_pago] : "—"}
                       </TableCell>
                       <TableCell>
-                        {m.cierre_id == null ? (
+                        {m.fuera_de_caja ? (
+                          <span
+                            className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-amber-600"
+                            title="Registrado con fecha de otro día: no entra a la caja abierta ni a los cierres."
+                          >
+                            <CalendarClock className="h-3.5 w-3.5" />
+                            Fuera de caja
+                          </span>
+                        ) : m.cierre_id == null ? (
                           <span className="text-xs text-muted-foreground">Sin cerrar</span>
                         ) : (
                           <span className="text-xs text-emerald-600">Cerrado</span>
@@ -249,6 +281,26 @@ export default function Movimientos() {
   );
 }
 
+/** Recuadro con un total del listado filtrado. */
+function TotalTile({
+  titulo,
+  texto,
+  className,
+}: {
+  titulo: string;
+  texto: string;
+  className?: string;
+}) {
+  return (
+    <Card>
+      <CardContent className="p-3">
+        <p className="text-xs text-muted-foreground">{titulo}</p>
+        <p className={`mt-0.5 text-lg font-bold ${className ?? ""}`}>{texto}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
 /** Diálogo para editar un movimiento de caja suelto (staff). */
 function EditarMovimientoDialog({
   movimiento,
@@ -262,6 +314,10 @@ function EditarMovimientoDialog({
   const [concepto, setConcepto] = useState(movimiento.concepto ?? "");
   const [metodo, setMetodo] = useState<MetodoPago>(movimiento.metodo_pago ?? "efectivo");
   const [monto, setMonto] = useState(String(movimiento.monto));
+  const [fecha, setFecha] = useState(() => aInputFechaHora(movimiento.created_at));
+
+  const fechaCambio = fecha !== aInputFechaHora(movimiento.created_at);
+  const quedaFuera = fechaCambio ? !esHoy(fecha) : movimiento.fuera_de_caja;
 
   const guardar = useMutation({
     mutationFn: async () => {
@@ -273,6 +329,9 @@ function EditarMovimientoDialog({
         p_concepto: concepto.trim() || null,
         p_metodo_pago: metodo,
         p_monto: valor,
+        // Solo se manda si de verdad se tocó la fecha: así corregir un monto no
+        // saca de la caja abierta a un movimiento del día.
+        ...(fechaCambio ? { p_fecha: desdeInputFechaHora(fecha) } : {}),
       });
       if (error) throw error;
     },
@@ -341,6 +400,22 @@ function EditarMovimientoDialog({
                 onChange={(e) => setMonto(e.target.value)}
               />
             </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="em-fecha">Fecha y hora</Label>
+            <Input
+              id="em-fecha"
+              type="datetime-local"
+              value={fecha}
+              onChange={(e) => setFecha(e.target.value)}
+            />
+            {quedaFuera && (
+              <p className="flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700">
+                <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                Queda fuera de la caja abierta: solo se ve en este historial y no
+                entra al próximo cierre.
+              </p>
+            )}
           </div>
         </div>
         <DialogFooter>

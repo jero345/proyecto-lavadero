@@ -181,6 +181,8 @@ export type Database = {
           caja: CajaTipo;
           orden_id: string | null;
           cierre_id: string | null;
+          /** true = fecha de otro día: solo historial, no entra a la caja abierta. */
+          fuera_de_caja: boolean;
           created_by: string;
           created_at: string;
         };
@@ -193,6 +195,7 @@ export type Database = {
           caja?: CajaTipo;
           orden_id?: string | null;
           cierre_id?: string | null;
+          fuera_de_caja?: boolean;
           created_by: string;
           created_at?: string;
         };
@@ -385,6 +388,20 @@ export type Database = {
           p_concepto: string | null;
           p_metodo_pago: MetodoPago;
           p_monto: number;
+          /** ISO. Si cambia, se recalcula si el movimiento entra o no a la caja. */
+          p_fecha?: string;
+        };
+        Returns: Database["public"]["Tables"]["caja_movimientos"]["Row"];
+      };
+      crear_movimiento: {
+        Args: {
+          p_tipo: TipoMovCaja;
+          p_concepto: string | null;
+          p_metodo_pago: MetodoPago;
+          p_monto: number;
+          p_caja?: CajaTipo;
+          /** ISO. Si no es de hoy, el movimiento nace fuera de la caja abierta. */
+          p_fecha?: string;
         };
         Returns: Database["public"]["Tables"]["caja_movimientos"]["Row"];
       };

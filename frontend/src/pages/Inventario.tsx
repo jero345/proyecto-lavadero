@@ -700,6 +700,8 @@ function CajaInventario() {
         .select("*")
         .eq("caja", "inventario")
         .is("cierre_id", null)
+        // Los movimientos con fecha de otro día solo viven en el historial.
+        .eq("fuera_de_caja", false)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data;
