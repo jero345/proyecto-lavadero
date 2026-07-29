@@ -16,12 +16,14 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/useAuth";
 import type { Orden } from "@/types/database.types";
 
 /**
- * Botón para eliminar una orden equivocada, con confirmación. Disponible para
- * cualquier usuario y en cualquier orden (el servidor solo impide borrar las
- * que ya están dentro de un cierre de caja).
+ * Botón para eliminar una orden equivocada, con confirmación. SOLO lo ve el
+ * super_admin (el admin no puede borrar órdenes); el servidor exige lo mismo en
+ * `eliminar_orden` y en la RLS, esto es únicamente la parte visual. Además, el
+ * servidor impide borrar una orden ya incluida en un cierre de caja.
  */
 export function EliminarOrdenButton({
   orden,
@@ -31,6 +33,7 @@ export function EliminarOrdenButton({
   showLabel?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const { isSuperAdmin } = useAuth();
   const [open, setOpen] = useState(false);
 
   const eliminar = useMutation({
@@ -50,6 +53,9 @@ export function EliminarOrdenButton({
         description: e instanceof Error ? e.message : "",
       }),
   });
+
+  // Después de los hooks (no se pueden llamar condicionalmente).
+  if (!isSuperAdmin) return null;
 
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
