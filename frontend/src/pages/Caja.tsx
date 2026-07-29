@@ -1,6 +1,7 @@
 import { useMemo } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Lock } from "lucide-react";
+import { ArrowRight, Loader2, Lock } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { formatCOP, formatFechaHora } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
-import { LABEL_METODO_PAGO } from "@/lib/dominio";
+import { LABEL_METODO_PAGO, ingresosCierre } from "@/lib/dominio";
 import { NuevoMovimientoDialog } from "@/components/NuevoMovimientoDialog";
 import type { CajaMovimiento, CierreCaja } from "@/types/database.types";
 
@@ -58,7 +59,8 @@ export default function Caja() {
         .select("*")
         .eq("caja", "principal")
         .order("fecha_cierre", { ascending: false })
-        .limit(10);
+        // Solo un vistazo rápido: el historial completo vive en /cierres.
+        .limit(5);
       if (error) throw error;
       return data;
     },
@@ -116,7 +118,7 @@ export default function Caja() {
         <ResumenCard titulo="Efectivo" valor={totales.efectivo} />
         <ResumenCard titulo="QR" valor={totales.qr} />
         <ResumenCard titulo="Transferencia" valor={totales.transferencia} />
-        <ResumenCard titulo="Total ingresos" valor={totales.ingresos} positivo />
+        <ResumenCard titulo="Total de los ingresos" valor={totales.ingresos} positivo />
         <ResumenCard titulo="Egresos" valor={totales.egresos} negativo />
         <ResumenCard titulo="Nómina" valor={totales.nomina} negativo />
         <ResumenCard
@@ -127,7 +129,8 @@ export default function Caja() {
         />
       </div>
       <p className="-mt-2 text-xs text-muted-foreground">
-        Total en caja = Efectivo + QR + Transferencia − Egresos − Nómina
+        Total de los ingresos = Efectivo + QR + Transferencia · Total en caja = Total de
+        los ingresos − Egresos − Nómina
       </p>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -211,10 +214,16 @@ export default function Caja() {
         </CardContent>
       </Card>
 
-      {/* Historial de cierres */}
+      {/* Últimos cierres (el historial completo está en /cierres) */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">Últimos cierres</CardTitle>
+          <Button asChild variant="ghost" size="sm">
+            <Link to="/cierres">
+              Ver todo el historial
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
         </CardHeader>
         <CardContent className="p-0">
           {cierres.length === 0 ? (
@@ -222,40 +231,48 @@ export default function Caja() {
               Aún no hay cierres.
             </p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Cierre</TableHead>
-                  <TableHead className="text-right">Efectivo</TableHead>
-                  <TableHead className="text-right">QR</TableHead>
-                  <TableHead className="text-right">Transf.</TableHead>
-                  <TableHead className="text-right">Egresos</TableHead>
-                  <TableHead className="text-right">Nómina</TableHead>
-                  <TableHead className="text-right">General</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {cierres.map((c) => (
-                  <TableRow key={c.id}>
-                    <TableCell className="whitespace-nowrap text-muted-foreground">
-                      {formatFechaHora(c.fecha_cierre)}
-                    </TableCell>
-                    <TableCell className="text-right">{formatCOP(c.total_efectivo)}</TableCell>
-                    <TableCell className="text-right">{formatCOP(c.total_qr)}</TableCell>
-                    <TableCell className="text-right">{formatCOP(c.total_transferencia)}</TableCell>
-                    <TableCell className="text-right text-destructive">
-                      {c.total_egresos > 0 ? "-" : ""}{formatCOP(c.total_egresos)}
-                    </TableCell>
-                    <TableCell className="text-right text-destructive">
-                      {c.total_nomina > 0 ? "-" : ""}{formatCOP(c.total_nomina)}
-                    </TableCell>
-                    <TableCell className="text-right font-semibold">
-                      {formatCOP(c.total_general)}
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Cierre</TableHead>
+                    <TableHead className="text-right">Efectivo</TableHead>
+                    <TableHead className="text-right">QR</TableHead>
+                    <TableHead className="text-right">Transf.</TableHead>
+                    <TableHead className="whitespace-nowrap text-right">
+                      Total de los ingresos
+                    </TableHead>
+                    <TableHead className="text-right">Egresos</TableHead>
+                    <TableHead className="text-right">Nómina</TableHead>
+                    <TableHead className="text-right">General</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {cierres.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {formatFechaHora(c.fecha_cierre)}
+                      </TableCell>
+                      <TableCell className="text-right">{formatCOP(c.total_efectivo)}</TableCell>
+                      <TableCell className="text-right">{formatCOP(c.total_qr)}</TableCell>
+                      <TableCell className="text-right">{formatCOP(c.total_transferencia)}</TableCell>
+                      <TableCell className="text-right font-medium text-emerald-600">
+                        {formatCOP(ingresosCierre(c))}
+                      </TableCell>
+                      <TableCell className="text-right text-destructive">
+                        {c.total_egresos > 0 ? "-" : ""}{formatCOP(c.total_egresos)}
+                      </TableCell>
+                      <TableCell className="text-right text-destructive">
+                        {c.total_nomina > 0 ? "-" : ""}{formatCOP(c.total_nomina)}
+                      </TableCell>
+                      <TableCell className="text-right font-semibold">
+                        {formatCOP(c.total_general)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>

@@ -163,16 +163,16 @@ export default function POS() {
             <CardTitle className="text-base">Tipo de vehículo</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {tiposVehiculo.map((t, i) => {
+            {tiposVehiculo.map((t) => {
               const activo = tipo === t.codigo;
-              const Icon = iconoTipoVehiculo(t.codigo);
+              const Icon = iconoTipoVehiculo(t.codigo, t.nombre);
               return (
                 <button
                   key={t.codigo}
                   type="button"
                   onClick={() => cambiarTipo(t.codigo)}
                   className={cn(
-                    "flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all",
+                    "flex flex-col items-center justify-start gap-2 rounded-xl border-2 p-4 text-center transition-all",
                     activo
                       ? "border-primary bg-primary/5 shadow-sm"
                       : "border-border hover:border-primary/40 hover:bg-accent/50",
@@ -180,15 +180,15 @@ export default function POS() {
                 >
                   <span
                     className={cn(
-                      "flex h-12 w-12 items-center justify-center rounded-full transition-colors",
+                      "flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-colors",
                       activo
                         ? "bg-primary text-primary-foreground shadow-sm"
-                        : colorTipoVehiculo(i),
+                        : colorTipoVehiculo(t.codigo, t.nombre),
                     )}
                   >
                     <Icon className="h-6 w-6" />
                   </span>
-                  <span className="text-sm font-medium">{t.nombre}</span>
+                  <span className="text-sm font-medium leading-tight">{t.nombre}</span>
                 </button>
               );
             })}

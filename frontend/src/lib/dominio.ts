@@ -1,35 +1,103 @@
 // Etiquetas y metadatos de dominio (labels en español, colores de estado).
-import { Bike, Car, Truck, Gauge, type LucideIcon } from "lucide-react";
+import {
+  Bike,
+  Bus,
+  Car,
+  CarFront,
+  Caravan,
+  Gauge,
+  HardHat,
+  Tractor,
+  Truck,
+  type LucideIcon,
+} from "lucide-react";
 
-import type { EstadoOrden, MetodoPago } from "@/types/database.types";
+import type { CierreCaja, EstadoOrden, MetodoPago } from "@/types/database.types";
 
-// Los tipos de vehículo ahora son un catálogo dinámico (tabla tipos_vehiculo).
-// Estos helpers dan un icono/color de UI a cada tipo. Los 4 base tienen su
-// icono; los tipos nuevos usan un icono y color por defecto (según su orden).
-const ICONO_TIPO: Record<string, LucideIcon> = {
-  moto: Bike,
-  moto_alto: Gauge,
-  auto: Car,
-  camioneta: Truck,
-};
-
-/** Icono para un tipo de vehículo (Car por defecto para tipos nuevos). */
-export function iconoTipoVehiculo(codigo: string): LucideIcon {
-  return ICONO_TIPO[codigo] ?? Car;
+/**
+ * Total de ingresos de un cierre = lo cobrado por los tres métodos de pago.
+ * No es una columna de la BD: se calcula para no migrar los cierres viejos.
+ */
+export function ingresosCierre(c: CierreCaja): number {
+  return Number(c.total_efectivo) + Number(c.total_qr) + Number(c.total_transferencia);
 }
 
-const COLORES_TIPO = [
-  "bg-sky-100 text-sky-600",
-  "bg-indigo-100 text-indigo-600",
-  "bg-emerald-100 text-emerald-600",
-  "bg-amber-100 text-amber-600",
-  "bg-rose-100 text-rose-600",
-  "bg-violet-100 text-violet-600",
+// Los tipos de vehículo son un catálogo dinámico (tabla tipos_vehiculo), así que
+// el icono/color no se pueden fijar por código: se deducen por palabras clave del
+// código y del nombre. Así un tipo nuevo ("Buseta", "Motos de 200 a 500 C.C")
+// recibe el icono de su familia sin tocar el código.
+// Ojo con el orden: gana la primera familia que coincida, por eso "camioneta" va
+// antes que "camion" y "buseta" antes que "bus".
+type FamiliaTipo = { claves: string[]; Icon: LucideIcon; color: string };
+
+const FAMILIAS_TIPO: FamiliaTipo[] = [
+  { claves: ["casco"], Icon: HardHat, color: "bg-amber-100 text-amber-600" },
+  {
+    claves: ["bicicleta", "bici", "cicla", "bmx"],
+    Icon: Bike,
+    color: "bg-emerald-100 text-emerald-600",
+  },
+  {
+    claves: ["moto", "cilindraje", "scooter"],
+    Icon: Gauge,
+    color: "bg-violet-100 text-violet-600",
+  },
+  {
+    claves: ["camioneta", "suv", "pickup", "pick_up", "4x4"],
+    Icon: CarFront,
+    color: "bg-indigo-100 text-indigo-600",
+  },
+  {
+    claves: ["buseta", "microbus", "bus", "van"],
+    Icon: Bus,
+    color: "bg-teal-100 text-teal-600",
+  },
+  {
+    claves: ["camion", "volqueta", "furgon", "tracto", "mula", "turbo"],
+    Icon: Truck,
+    color: "bg-rose-100 text-rose-600",
+  },
+  { claves: ["tractor"], Icon: Tractor, color: "bg-lime-100 text-lime-600" },
+  {
+    claves: ["trailer", "remolque", "caravana"],
+    Icon: Caravan,
+    color: "bg-orange-100 text-orange-600",
+  },
+  {
+    claves: ["auto", "carro", "sedan", "taxi", "hatchback"],
+    Icon: Car,
+    color: "bg-sky-100 text-sky-600",
+  },
 ];
 
-/** Color de fondo para el botón de un tipo de vehículo (ciclado por índice). */
-export function colorTipoVehiculo(indice: number): string {
-  return COLORES_TIPO[indice % COLORES_TIPO.length];
+const FAMILIA_DEFECTO: FamiliaTipo = {
+  claves: [],
+  Icon: Car,
+  color: "bg-slate-100 text-slate-600",
+};
+
+/** Normaliza para comparar: sin acentos, minúsculas y sin signos. */
+function normalizar(texto: string): string {
+  return texto
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "") // quita acentos (marcas combinantes)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_");
+}
+
+function familiaTipoVehiculo(codigo: string, nombre = ""): FamiliaTipo {
+  const texto = `${normalizar(codigo)}_${normalizar(nombre)}`;
+  return FAMILIAS_TIPO.find((f) => f.claves.some((c) => texto.includes(c))) ?? FAMILIA_DEFECTO;
+}
+
+/** Icono para un tipo de vehículo (Car por defecto si no se reconoce). */
+export function iconoTipoVehiculo(codigo: string, nombre = ""): LucideIcon {
+  return familiaTipoVehiculo(codigo, nombre).Icon;
+}
+
+/** Color del icono de un tipo de vehículo (mismo color para toda la familia). */
+export function colorTipoVehiculo(codigo: string, nombre = ""): string {
+  return familiaTipoVehiculo(codigo, nombre).color;
 }
 
 export const METODOS_PAGO: { value: MetodoPago; label: string }[] = [
