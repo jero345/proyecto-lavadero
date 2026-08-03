@@ -24,6 +24,7 @@ import {
 import { aInputFechaHora, desdeInputFechaHora, esHoy } from "@/lib/format";
 import { METODOS_PAGO } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/useAuth";
 import type { CajaTipo, MetodoPago, TipoMovCaja } from "@/types/database.types";
 
 /**
@@ -31,18 +32,25 @@ import type { CajaTipo, MetodoPago, TipoMovCaja } from "@/types/database.types";
  * a la de hoy: en ese caso el movimiento queda solo en el historial y NO afecta
  * la caja abierta ni el próximo cierre (lo decide el servidor, en
  * crear_movimiento).
+ *
+ * El EMPLEADO solo puede registrar egresos de la caja principal con fecha de
+ * hoy: el formulario se simplifica y el servidor exige lo mismo.
  */
 export function NuevoMovimientoDialog({
   caja,
   triggerLabel = "Movimiento",
   triggerVariant = "outline",
+  soloEgreso = false,
 }: {
   /** Si se pasa, la caja queda fija; si no, el usuario la elige. */
   caja?: CajaTipo;
   triggerLabel?: string;
   triggerVariant?: "default" | "outline";
+  /** Deja el tipo fijo en "egreso" (registro rápido de un gasto). */
+  soloEgreso?: boolean;
 }) {
   const queryClient = useQueryClient();
+  const { isStaff } = useAuth();
   const [open, setOpen] = useState(false);
 
   const [tipo, setTipo] = useState<TipoMovCaja>("egreso");
@@ -57,24 +65,27 @@ export function NuevoMovimientoDialog({
     if (open) setFecha(aInputFechaHora());
   }, [open]);
 
-  const fechaPasada = fecha !== "" && !esHoy(fecha);
+  // El empleado no elige tipo, ni caja, ni fecha: egreso, principal y hoy.
+  const fijarEgreso = soloEgreso || !isStaff;
+  const fechaPasada = isStaff && fecha !== "" && !esHoy(fecha);
 
   const crear = useMutation({
     mutationFn: async () => {
       const valor = Number(monto);
       if (!Number.isFinite(valor) || valor <= 0) throw new Error("Monto inválido");
       const { error } = await supabase.rpc("crear_movimiento", {
-        p_tipo: tipo,
+        p_tipo: fijarEgreso ? "egreso" : tipo,
         p_concepto: concepto.trim() || null,
         p_metodo_pago: metodo,
         p_monto: valor,
-        p_caja: caja ?? cajaSel,
-        p_fecha: desdeInputFechaHora(fecha),
+        p_caja: caja ?? (isStaff ? cajaSel : "principal"),
+        // Sin fecha explícita el servidor usa "ahora" (caso del empleado).
+        ...(isStaff ? { p_fecha: desdeInputFechaHora(fecha) } : {}),
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Movimiento registrado", {
+      toast.success(fijarEgreso ? "Egreso registrado" : "Movimiento registrado", {
         description: fechaPasada
           ? "Con fecha de otro día: queda en el historial, no afecta la caja abierta."
           : undefined,
@@ -100,37 +111,41 @@ export function NuevoMovimientoDialog({
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Nuevo movimiento</DialogTitle>
+          <DialogTitle>{fijarEgreso ? "Registrar egreso" : "Nuevo movimiento"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          <div className={caja ? "space-y-2" : "grid grid-cols-2 gap-3"}>
-            <div className="space-y-2">
-              <Label>Tipo</Label>
-              <Select value={tipo} onValueChange={(v) => setTipo(v as TipoMovCaja)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ingreso">Ingreso</SelectItem>
-                  <SelectItem value="egreso">Egreso</SelectItem>
-                </SelectContent>
-              </Select>
+          {(!fijarEgreso || (!caja && isStaff)) && (
+            <div className={caja || fijarEgreso ? "space-y-2" : "grid grid-cols-2 gap-3"}>
+              {!fijarEgreso && (
+                <div className="space-y-2">
+                  <Label>Tipo</Label>
+                  <Select value={tipo} onValueChange={(v) => setTipo(v as TipoMovCaja)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ingreso">Ingreso</SelectItem>
+                      <SelectItem value="egreso">Egreso</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {!caja && isStaff && (
+                <div className="space-y-2">
+                  <Label>Caja</Label>
+                  <Select value={cajaSel} onValueChange={(v) => setCajaSel(v as CajaTipo)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="principal">Principal</SelectItem>
+                      <SelectItem value="inventario">Inventario</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
-            {!caja && (
-              <div className="space-y-2">
-                <Label>Caja</Label>
-                <Select value={cajaSel} onValueChange={(v) => setCajaSel(v as CajaTipo)}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="principal">Principal</SelectItem>
-                    <SelectItem value="inventario">Inventario</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-          </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="nm-concepto">Concepto</Label>
@@ -172,13 +187,21 @@ export function NuevoMovimientoDialog({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="nm-fecha">Fecha y hora</Label>
-            <Input
-              id="nm-fecha"
-              type="datetime-local"
-              value={fecha}
-              onChange={(e) => setFecha(e.target.value)}
-            />
+            {isStaff ? (
+              <>
+                <Label htmlFor="nm-fecha">Fecha y hora</Label>
+                <Input
+                  id="nm-fecha"
+                  type="datetime-local"
+                  value={fecha}
+                  onChange={(e) => setFecha(e.target.value)}
+                />
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Queda registrado con la fecha y hora de ahora, en la caja principal.
+              </p>
+            )}
             {fechaPasada && (
               <p className="flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700">
                 <CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0" />

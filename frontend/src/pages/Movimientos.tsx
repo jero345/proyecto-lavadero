@@ -59,7 +59,7 @@ const LABEL_CAJA: Record<CajaTipo, string> = {
 };
 
 export default function Movimientos() {
-  const { isStaff } = useAuth();
+  const { isStaff, isSuperAdmin } = useAuth();
   const [busqueda, setBusqueda] = useState("");
   const [caja, setCaja] = useState<FiltroCaja>("todas");
   const [tipo, setTipo] = useState<FiltroTipo>("todos");
@@ -244,21 +244,36 @@ export default function Movimientos() {
                       </TableCell>
                       {isStaff && (
                         <TableCell className="text-right">
-                          {m.cierre_id == null && m.orden_id == null ? (
-                            <div className="flex items-center justify-end gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                title="Editar movimiento"
-                                onClick={() => setEditando(m)}
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </Button>
-                              <EliminarMovimientoButton movimiento={m} />
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          )}
+                          {/* Suelto = ni cerrado ni de una orden. El super admin
+                              además puede editar cerrados y de orden (el
+                              servidor recalcula el cierre y sincroniza la orden);
+                              borrar sigue siendo solo para los sueltos. */}
+                          {(() => {
+                            const suelto = m.cierre_id == null && m.orden_id == null;
+                            const puedeEditar = suelto || isSuperAdmin;
+                            if (!puedeEditar && !suelto) {
+                              return <span className="text-xs text-muted-foreground">—</span>;
+                            }
+                            return (
+                              <div className="flex items-center justify-end gap-1">
+                                {puedeEditar && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    title={
+                                      suelto
+                                        ? "Editar movimiento"
+                                        : "Editar movimiento (super admin)"
+                                    }
+                                    onClick={() => setEditando(m)}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </Button>
+                                )}
+                                {suelto && <EliminarMovimientoButton movimiento={m} />}
+                              </div>
+                            );
+                          })()}
                         </TableCell>
                       )}
                     </TableRow>
@@ -316,8 +331,11 @@ function EditarMovimientoDialog({
   const [monto, setMonto] = useState(String(movimiento.monto));
   const [fecha, setFecha] = useState(() => aInputFechaHora(movimiento.created_at));
 
+  const cerrado = movimiento.cierre_id != null;
+  const deOrden = movimiento.orden_id != null;
   const fechaCambio = fecha !== aInputFechaHora(movimiento.created_at);
-  const quedaFuera = fechaCambio ? !esHoy(fecha) : movimiento.fuera_de_caja;
+  // Un movimiento ya cerrado pertenece a su cierre: no se sale de la caja.
+  const quedaFuera = cerrado ? false : fechaCambio ? !esHoy(fecha) : movimiento.fuera_de_caja;
 
   const guardar = useMutation({
     mutationFn: async () => {
@@ -353,6 +371,22 @@ function EditarMovimientoDialog({
           <DialogTitle>Editar movimiento</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
+          {(cerrado || deOrden) && (
+            <div className="space-y-1 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+              {cerrado && (
+                <p>
+                  Ya está dentro de un <strong>cierre de caja</strong>: al guardar se
+                  recalculan los totales de ese cierre.
+                </p>
+              )}
+              {deOrden && (
+                <p>
+                  Viene de una <strong>orden</strong>: se actualizarán también su total
+                  y su método de pago.
+                </p>
+              )}
+            </div>
+          )}
           <div className="space-y-2">
             <Label>Tipo</Label>
             <Select value={tipo} onValueChange={(v) => setTipo(v as TipoMovCaja)}>

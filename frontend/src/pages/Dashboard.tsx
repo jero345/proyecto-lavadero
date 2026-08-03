@@ -25,6 +25,7 @@ import { linkLlamada, linkWhatsApp } from "@/lib/contacto";
 import { supabase } from "@/lib/supabase";
 import { imprimirReciboDeOrden } from "@/lib/recibo-orden";
 import { CobrarOrdenDialog } from "@/components/CobrarOrdenDialog";
+import { NuevoMovimientoDialog } from "@/components/NuevoMovimientoDialog";
 import { EliminarOrdenButton } from "@/components/EliminarOrdenButton";
 import { AsignarEmpleadoButton } from "@/components/AsignarEmpleadoButton";
 import { CLASE_ESTADO, LABEL_ESTADO } from "@/lib/dominio";
@@ -212,6 +213,12 @@ export default function Dashboard() {
         </Link>
       )}
 
+      {/* Registro rápido de un gasto: también lo puede hacer el empleado
+          (el servidor solo le permite egresos de la caja principal). */}
+      <div className="flex justify-end">
+        <NuevoMovimientoDialog caja="principal" soloEgreso triggerLabel="Registrar egreso" />
+      </div>
+
       {/* KPIs */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard
@@ -256,9 +263,9 @@ export default function Dashboard() {
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {activasVisibles.map((o) => (
-                <div key={o.id} className="rounded-lg border p-4">
-                  <div className="flex items-start justify-between">
-                    <div>
+                <div key={o.id} className="flex flex-col rounded-lg border p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
                       <p className="text-lg font-bold tracking-wide">
                         {o.placa || "—"}
                       </p>
@@ -266,7 +273,7 @@ export default function Dashboard() {
                         {formatFechaHora(o.created_at)}
                       </p>
                       {o.cliente_nombre && (
-                        <p className="mt-0.5 flex items-center gap-1 text-xs font-medium">
+                        <p className="mt-0.5 flex items-center gap-1 truncate text-xs font-medium">
                           <UserRound className="h-3 w-3 shrink-0 text-muted-foreground" />
                           {o.cliente_nombre}
                         </p>
@@ -303,10 +310,13 @@ export default function Dashboard() {
                       )}
                     </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  {/* Contacto del cliente: fila propia, separada de las acciones
+                      de la orden (antes se mezclaban y los botones se partían). */}
+                  <ContactoCliente orden={o} />
+
+                  <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
                     <span className="font-semibold">{formatCOP(o.total)}</span>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      <ContactoCliente orden={o} />
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">
                       <Button
                         size="sm"
                         variant="ghost"
@@ -389,7 +399,7 @@ export default function Dashboard() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <ContactoCliente orden={o} />
+                    <ContactoCliente orden={o} variante="iconos" />
                     <span className="font-semibold">{formatCOP(o.total)}</span>
                     <Button size="sm" variant="secondary" onClick={() => setCobrarDe(o)}>
                       <DollarSign className="h-3.5 w-3.5" />
@@ -414,6 +424,9 @@ export default function Dashboard() {
   );
 }
 
+/** Nombre comercial que ve el cliente en los mensajes. */
+const NEGOCIO = "Todo en 1 automotriz";
+
 /**
  * Mensaje sugerido de WhatsApp según el momento de la orden. El texto se puede
  * editar en WhatsApp antes de enviarlo.
@@ -422,28 +435,66 @@ function mensajeWhatsApp(o: OrdenConEmpleado): string {
   const saludo = o.cliente_nombre ? `Hola ${o.cliente_nombre}` : "Hola";
   const vehiculo = o.placa ? ` (${o.placa})` : "";
   if (o.estado === "en_proceso") {
-    return `${saludo}, le escribimos de Car Wash Services. Su vehículo${vehiculo} está en proceso de lavado, le avisamos apenas esté listo.`;
+    return `${saludo}, le escribimos de ${NEGOCIO}. Su vehículo${vehiculo} está en proceso de lavado, le avisamos apenas esté listo.`;
   }
   if (o.metodo_pago == null) {
-    return `${saludo}, le escribimos de Car Wash Services. Su vehículo${vehiculo} ya está listo y queda pendiente el pago de ${formatCOP(o.total)}.`;
+    return `${saludo}, le escribimos de ${NEGOCIO}. Su vehículo${vehiculo} ya está listo y queda pendiente el pago de ${formatCOP(o.total)}.`;
   }
-  return `${saludo}, le escribimos de Car Wash Services. Su vehículo${vehiculo} ya está listo para entrega. ¡Gracias!`;
+  return `${saludo}, le escribimos de ${NEGOCIO}. Su vehículo${vehiculo} ya está listo para entrega. ¡Gracias!`;
 }
 
-/** Botones para llamar o escribir por WhatsApp al cliente de la orden. */
-function ContactoCliente({ orden }: { orden: OrdenConEmpleado }) {
+/**
+ * Llamar o escribir por WhatsApp al cliente de la orden. En las tarjetas van
+ * como fila con etiqueta (`variante="fila"`); en listas apretadas, como iconos.
+ */
+function ContactoCliente({
+  orden,
+  variante = "fila",
+}: {
+  orden: OrdenConEmpleado;
+  variante?: "fila" | "iconos";
+}) {
   const tel = linkLlamada(orden.cliente_telefono);
   const whatsapp = linkWhatsApp(orden.cliente_telefono, mensajeWhatsApp(orden));
   // Sin cliente o sin teléfono guardado no hay a quién escribirle.
   if (!tel && !whatsapp) return null;
 
   const quien = orden.cliente_nombre ?? "el cliente";
+
+  if (variante === "iconos") {
+    return (
+      <>
+        {tel && (
+          <Button asChild size="sm" variant="ghost" title={`Llamar a ${quien}`}>
+            <a href={tel}>
+              <Phone className="h-3.5 w-3.5" />
+            </a>
+          </Button>
+        )}
+        {whatsapp && (
+          <Button
+            asChild
+            size="sm"
+            variant="ghost"
+            className="text-[#128C7E] hover:bg-emerald-50 hover:text-[#128C7E]"
+            title={`Escribir a ${quien} por WhatsApp`}
+          >
+            <a href={whatsapp} target="_blank" rel="noreferrer">
+              <MessageCircle className="h-3.5 w-3.5" />
+            </a>
+          </Button>
+        )}
+      </>
+    );
+  }
+
   return (
-    <>
+    <div className="mt-3 flex gap-2">
       {tel && (
-        <Button asChild size="sm" variant="ghost" title={`Llamar a ${quien}`}>
-          <a href={tel}>
+        <Button asChild size="sm" variant="outline" className="flex-1">
+          <a href={tel} title={`Llamar a ${quien}`}>
             <Phone className="h-3.5 w-3.5" />
+            Llamar
           </a>
         </Button>
       )}
@@ -451,16 +502,20 @@ function ContactoCliente({ orden }: { orden: OrdenConEmpleado }) {
         <Button
           asChild
           size="sm"
-          variant="ghost"
-          className="text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
-          title={`Escribir a ${quien} por WhatsApp`}
+          className="flex-1 bg-[#25D366] text-white hover:bg-[#1DA851]"
         >
-          <a href={whatsapp} target="_blank" rel="noreferrer">
+          <a
+            href={whatsapp}
+            target="_blank"
+            rel="noreferrer"
+            title={`Escribir a ${quien} por WhatsApp`}
+          >
             <MessageCircle className="h-3.5 w-3.5" />
+            WhatsApp
           </a>
         </Button>
       )}
-    </>
+    </div>
   );
 }
 
