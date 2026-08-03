@@ -13,6 +13,7 @@ const Ordenes = lazy(() => import("@/pages/Ordenes"));
 const Caja = lazy(() => import("@/pages/Caja"));
 const Cierres = lazy(() => import("@/pages/Cierres"));
 const Movimientos = lazy(() => import("@/pages/Movimientos"));
+const Gastos = lazy(() => import("@/pages/Gastos"));
 const Nomina = lazy(() => import("@/pages/Nomina"));
 const Inventario = lazy(() => import("@/pages/Inventario"));
 const Clientes = lazy(() => import("@/pages/Clientes"));
@@ -50,6 +51,7 @@ function App() {
               <Route path="caja" element={<Caja />} />
               <Route path="cierres" element={<Cierres />} />
               <Route path="movimientos" element={<Movimientos />} />
+              <Route path="gastos" element={<Gastos />} />
               <Route path="empleados" element={<Empleados />} />
             </Route>
           </Route>

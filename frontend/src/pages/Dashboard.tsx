@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Car, Clock, DollarSign, ArrowRight, Loader2, Printer, BellRing } from "lucide-react";
+import {
+  Car,
+  Clock,
+  DollarSign,
+  ArrowRight,
+  Loader2,
+  MessageCircle,
+  Phone,
+  Printer,
+  BellRing,
+  UserRound,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { formatCOP, formatFechaHora } from "@/lib/format";
+import { linkLlamada, linkWhatsApp } from "@/lib/contacto";
 import { supabase } from "@/lib/supabase";
 import { imprimirReciboDeOrden } from "@/lib/recibo-orden";
 import { CobrarOrdenDialog } from "@/components/CobrarOrdenDialog";
@@ -120,15 +132,15 @@ export default function Dashboard() {
   // Solo es relevante para staff (cobrar toca caja).
   const { data: sinCobrar = [] } = useQuery({
     queryKey: ["dashboard", "sin-cobrar"],
-    queryFn: async (): Promise<Orden[]> => {
+    queryFn: async (): Promise<OrdenConEmpleado[]> => {
       const { data, error } = await supabase
         .from("ordenes")
-        .select("*")
+        .select(SELECT_ORDEN_CON_EMPLEADO)
         .eq("estado", "entregado")
         .is("metodo_pago", null)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data;
+      return (data ?? []).map(aplanarEmpleado);
     },
   });
 
@@ -253,6 +265,12 @@ export default function Dashboard() {
                       <p className="text-xs text-muted-foreground">
                         {formatFechaHora(o.created_at)}
                       </p>
+                      {o.cliente_nombre && (
+                        <p className="mt-0.5 flex items-center gap-1 text-xs font-medium">
+                          <UserRound className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          {o.cliente_nombre}
+                        </p>
+                      )}
                       <p
                         className={cn(
                           "mt-0.5 text-xs font-medium",
@@ -288,6 +306,7 @@ export default function Dashboard() {
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                     <span className="font-semibold">{formatCOP(o.total)}</span>
                     <div className="flex flex-wrap items-center justify-end gap-2">
+                      <ContactoCliente orden={o} />
                       <Button
                         size="sm"
                         variant="ghost"
@@ -366,9 +385,11 @@ export default function Dashboard() {
                     <p className="font-bold tracking-wide">{o.placa || "—"}</p>
                     <p className="text-xs text-muted-foreground">
                       {formatFechaHora(o.created_at)}
+                      {o.cliente_nombre ? ` · ${o.cliente_nombre}` : ""}
                     </p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <ContactoCliente orden={o} />
                     <span className="font-semibold">{formatCOP(o.total)}</span>
                     <Button size="sm" variant="secondary" onClick={() => setCobrarDe(o)}>
                       <DollarSign className="h-3.5 w-3.5" />
@@ -390,6 +411,56 @@ export default function Dashboard() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Mensaje sugerido de WhatsApp según el momento de la orden. El texto se puede
+ * editar en WhatsApp antes de enviarlo.
+ */
+function mensajeWhatsApp(o: OrdenConEmpleado): string {
+  const saludo = o.cliente_nombre ? `Hola ${o.cliente_nombre}` : "Hola";
+  const vehiculo = o.placa ? ` (${o.placa})` : "";
+  if (o.estado === "en_proceso") {
+    return `${saludo}, le escribimos de Car Wash Services. Su vehículo${vehiculo} está en proceso de lavado, le avisamos apenas esté listo.`;
+  }
+  if (o.metodo_pago == null) {
+    return `${saludo}, le escribimos de Car Wash Services. Su vehículo${vehiculo} ya está listo y queda pendiente el pago de ${formatCOP(o.total)}.`;
+  }
+  return `${saludo}, le escribimos de Car Wash Services. Su vehículo${vehiculo} ya está listo para entrega. ¡Gracias!`;
+}
+
+/** Botones para llamar o escribir por WhatsApp al cliente de la orden. */
+function ContactoCliente({ orden }: { orden: OrdenConEmpleado }) {
+  const tel = linkLlamada(orden.cliente_telefono);
+  const whatsapp = linkWhatsApp(orden.cliente_telefono, mensajeWhatsApp(orden));
+  // Sin cliente o sin teléfono guardado no hay a quién escribirle.
+  if (!tel && !whatsapp) return null;
+
+  const quien = orden.cliente_nombre ?? "el cliente";
+  return (
+    <>
+      {tel && (
+        <Button asChild size="sm" variant="ghost" title={`Llamar a ${quien}`}>
+          <a href={tel}>
+            <Phone className="h-3.5 w-3.5" />
+          </a>
+        </Button>
+      )}
+      {whatsapp && (
+        <Button
+          asChild
+          size="sm"
+          variant="ghost"
+          className="text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
+          title={`Escribir a ${quien} por WhatsApp`}
+        >
+          <a href={whatsapp} target="_blank" rel="noreferrer">
+            <MessageCircle className="h-3.5 w-3.5" />
+          </a>
+        </Button>
+      )}
+    </>
   );
 }
 

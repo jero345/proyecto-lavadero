@@ -60,6 +60,7 @@ export type Database = {
           telefono: string | null;
           porcentaje_comision: number;
           activo: boolean;
+          observaciones: string | null;
           created_at: string;
         };
         Insert: {
@@ -68,6 +69,7 @@ export type Database = {
           telefono?: string | null;
           porcentaje_comision?: number;
           activo?: boolean;
+          observaciones?: string | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["empleados"]["Insert"]>;
@@ -230,6 +232,30 @@ export type Database = {
           created_by: string;
         };
         Update: Partial<Database["public"]["Tables"]["cierres_caja"]["Insert"]>;
+        Relationships: [];
+      };
+      gastos_fijos: {
+        Row: {
+          id: string;
+          categoria: string;
+          concepto: string | null;
+          monto: number;
+          fecha: string;
+          metodo_pago: MetodoPago | null;
+          created_by: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          categoria: string;
+          concepto?: string | null;
+          monto: number;
+          fecha?: string;
+          metodo_pago?: MetodoPago | null;
+          created_by?: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["gastos_fijos"]["Insert"]>;
         Relationships: [];
       };
       productos: {
@@ -430,6 +456,7 @@ export type Orden = Database["public"]["Tables"]["ordenes"]["Row"];
 export type OrdenItem = Database["public"]["Tables"]["orden_items"]["Row"];
 export type CajaMovimiento = Database["public"]["Tables"]["caja_movimientos"]["Row"];
 export type CierreCaja = Database["public"]["Tables"]["cierres_caja"]["Row"];
+export type GastoFijo = Database["public"]["Tables"]["gastos_fijos"]["Row"];
 export type Producto = Database["public"]["Tables"]["productos"]["Row"];
 export type VentaProducto = Database["public"]["Tables"]["ventas_productos"]["Row"];
 export type InventarioMovimiento = Database["public"]["Tables"]["inventario_movimientos"]["Row"];

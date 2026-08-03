@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -101,6 +102,7 @@ export default function Empleados() {
                   <TableHead>Teléfono</TableHead>
                   <TableHead>Ingreso</TableHead>
                   <TableHead className="text-right">Comisión</TableHead>
+                  <TableHead>Observaciones</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead className="text-right">Acción</TableHead>
                 </TableRow>
@@ -117,6 +119,13 @@ export default function Empleados() {
                     </TableCell>
                     <TableCell className="text-right">
                       {e.porcentaje_comision}%
+                    </TableCell>
+                    {/* Notas largas: se recortan y el texto completo va en el title. */}
+                    <TableCell
+                      className="max-w-[220px] truncate text-muted-foreground"
+                      title={e.observaciones ?? undefined}
+                    >
+                      {e.observaciones || "—"}
                     </TableCell>
                     <TableCell>
                       {e.activo ? (
@@ -240,6 +249,7 @@ function NuevoEmpleado({ onCreado }: { onCreado: () => void }) {
   const [nombre, setNombre] = useState("");
   const [telefono, setTelefono] = useState("");
   const [comision, setComision] = useState("40");
+  const [observaciones, setObservaciones] = useState("");
 
   const crear = useMutation({
     mutationFn: async () => {
@@ -251,6 +261,7 @@ function NuevoEmpleado({ onCreado }: { onCreado: () => void }) {
         nombre: nombre.trim(),
         telefono: telefono.trim() || null,
         porcentaje_comision: pct,
+        observaciones: observaciones.trim() || null,
       });
       if (error) throw error;
     },
@@ -259,6 +270,7 @@ function NuevoEmpleado({ onCreado }: { onCreado: () => void }) {
       setNombre("");
       setTelefono("");
       setComision("40");
+      setObservaciones("");
       setOpen(false);
       onCreado();
     },
@@ -310,6 +322,16 @@ function NuevoEmpleado({ onCreado }: { onCreado: () => void }) {
                 onChange={(e) => setComision(e.target.value)}
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="ne-obs">Observaciones (opcional)</Label>
+              <Textarea
+                id="ne-obs"
+                rows={3}
+                value={observaciones}
+                onChange={(e) => setObservaciones(e.target.value)}
+                placeholder="Horario, acuerdos, documentos pendientes…"
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button onClick={() => crear.mutate()} disabled={crear.isPending}>
@@ -333,6 +355,7 @@ function EditarEmpleado({
   const [nombre, setNombre] = useState(empleado.nombre);
   const [telefono, setTelefono] = useState(empleado.telefono ?? "");
   const [comision, setComision] = useState(String(empleado.porcentaje_comision));
+  const [observaciones, setObservaciones] = useState(empleado.observaciones ?? "");
   const [activo, setActivo] = useState(empleado.activo);
   const fechaIngresoInicial = fechaLocalISO(new Date(empleado.created_at));
   const [fechaIngreso, setFechaIngreso] = useState(fechaIngresoInicial);
@@ -348,12 +371,14 @@ function EditarEmpleado({
         nombre: string;
         telefono: string | null;
         porcentaje_comision: number;
+        observaciones: string | null;
         activo: boolean;
         created_at?: string;
       } = {
         nombre: nombre.trim(),
         telefono: telefono.trim() || null,
         porcentaje_comision: pct,
+        observaciones: observaciones.trim() || null,
         activo,
       };
       // Solo tocamos la fecha de ingreso si el usuario la cambió. Se guarda al
@@ -411,6 +436,16 @@ function EditarEmpleado({
             max={100}
             value={comision}
             onChange={(e) => setComision(e.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="ee-obs">Observaciones</Label>
+          <Textarea
+            id="ee-obs"
+            rows={3}
+            value={observaciones}
+            onChange={(e) => setObservaciones(e.target.value)}
+            placeholder="Horario, acuerdos, documentos pendientes…"
           />
         </div>
         <div className="space-y-2">

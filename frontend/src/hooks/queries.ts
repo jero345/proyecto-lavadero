@@ -23,19 +23,32 @@ export function useTiposVehiculo(soloActivos = true) {
   });
 }
 
-/** Orden + nombre del empleado asignado (todos sus ítems comparten empleado). */
-export type OrdenConEmpleado = Orden & { empleado_nombre: string | null };
+/**
+ * Orden + nombre del empleado asignado (todos sus ítems comparten empleado) y
+ * datos de contacto del cliente (para llamarlo o escribirle por WhatsApp).
+ */
+export type OrdenConEmpleado = Orden & {
+  empleado_nombre: string | null;
+  cliente_nombre: string | null;
+  cliente_telefono: string | null;
+};
 
-/** Extrae el nombre del empleado de los ítems embebidos y lo aplana en la orden. */
+/** Aplana el empleado (vía ítems) y el cliente embebidos en la orden. */
 export function aplanarEmpleado(o: Record<string, unknown>): OrdenConEmpleado {
-  const { orden_items, ...orden } = o as Orden & {
+  const { orden_items, cliente, ...orden } = o as Orden & {
     orden_items?: { empleado?: { nombre?: string | null } | null }[];
+    cliente?: { nombre?: string | null; telefono?: string | null } | null;
   };
-  const nombre = orden_items?.[0]?.empleado?.nombre ?? null;
-  return { ...(orden as Orden), empleado_nombre: nombre };
+  return {
+    ...(orden as Orden),
+    empleado_nombre: orden_items?.[0]?.empleado?.nombre ?? null,
+    cliente_nombre: cliente?.nombre ?? null,
+    cliente_telefono: cliente?.telefono ?? null,
+  };
 }
-/** Select de órdenes con el empleado asignado embebido (vía orden_items). */
-export const SELECT_ORDEN_CON_EMPLEADO = "*, orden_items(empleado:empleados(nombre))";
+/** Select de órdenes con el empleado (vía orden_items) y el cliente embebidos. */
+export const SELECT_ORDEN_CON_EMPLEADO =
+  "*, orden_items(empleado:empleados(nombre)), cliente:clientes(nombre,telefono)";
 
 /** Empleados (roster) activos para asignar en órdenes/nómina. */
 export function useEmpleados() {
