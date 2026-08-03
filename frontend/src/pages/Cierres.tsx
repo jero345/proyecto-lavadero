@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Eye, RotateCcw } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Eye, Loader2, Pencil, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -31,6 +33,7 @@ import {
 import { aInputFechaHora, formatCOP, formatFechaHora } from "@/lib/format";
 import { LABEL_METODO_PAGO, ingresosCierre } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/useAuth";
 import type { CajaMovimiento, CajaTipo, CierreCaja } from "@/types/database.types";
 
 type FiltroCaja = CajaTipo | "todas";
@@ -46,10 +49,12 @@ function fechaLocal(iso: string): string {
 }
 
 export default function Cierres() {
+  const { isSuperAdmin } = useAuth();
   const [caja, setCaja] = useState<FiltroCaja>("todas");
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
   const [detalle, setDetalle] = useState<CierreCaja | null>(null);
+  const [editandoTotal, setEditandoTotal] = useState<CierreCaja | null>(null);
 
   const { data: cierres = [], isLoading } = useQuery({
     queryKey: ["caja", "cierres", "historial"],
@@ -241,7 +246,35 @@ export default function Cierres() {
                           Number(c.total_general) < 0 ? "text-destructive" : ""
                         }`}
                       >
-                        {formatCOP(c.total_general)}
+                        <span className="flex items-center justify-end gap-1 whitespace-nowrap">
+                          {c.total_general_manual && (
+                            <Badge
+                              variant="outline"
+                              className="border-amber-200 bg-amber-50 font-normal text-amber-700"
+                              title={
+                                c.total_general_editado_at
+                                  ? `Total ajustado a mano el ${formatFechaHora(
+                                      c.total_general_editado_at,
+                                    )}`
+                                  : "Total ajustado a mano"
+                              }
+                            >
+                              Ajustado
+                            </Badge>
+                          )}
+                          {formatCOP(c.total_general)}
+                          {isSuperAdmin && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-1.5"
+                              title="Editar el total general"
+                              onClick={() => setEditandoTotal(c)}
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                          )}
+                        </span>
                       </TableCell>
                       <TableCell className="text-right">
                         <Button
@@ -295,7 +328,106 @@ export default function Cierres() {
           onClose={() => setDetalle(null)}
         />
       )}
+
+      {editandoTotal && (
+        <EditarTotalDialog
+          key={editandoTotal.id}
+          cierre={editandoTotal}
+          onClose={() => setEditandoTotal(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * Ajuste manual del total general de un cierre (solo super admin). El desglose
+ * por método de pago no se toca: se corrige únicamente ese valor.
+ */
+function EditarTotalDialog({
+  cierre,
+  onClose,
+}: {
+  cierre: CierreCaja;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [valor, setValor] = useState(String(cierre.total_general));
+
+  // El total que sale de los movimientos del cierre (por si quiere volver a él).
+  const calculado =
+    ingresosCierre(cierre) - Number(cierre.total_egresos) - Number(cierre.total_nomina);
+
+  const guardar = useMutation({
+    // total null = quitar el ajuste y volver al calculado.
+    mutationFn: async (total: number | null) => {
+      if (total !== null && !Number.isFinite(total)) throw new Error("Total inválido");
+      const { error } = await supabase.rpc("editar_total_cierre", {
+        p_cierre_id: cierre.id,
+        p_total: total,
+      });
+      if (error) throw error;
+    },
+    onSuccess: (_d, total) => {
+      toast.success(total === null ? "Total recalculado" : "Total actualizado");
+      queryClient.invalidateQueries({ queryKey: ["caja"] });
+      onClose();
+    },
+    onError: (e: unknown) =>
+      toast.error("No se pudo guardar", {
+        description: e instanceof Error ? e.message : "",
+      }),
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Total general del cierre</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Cierre del {formatFechaHora(cierre.fecha_cierre)} · caja{" "}
+            {LABEL_CAJA[cierre.caja]}. Solo se cambia este total: el desglose por
+            método de pago, egresos y nómina queda igual.
+          </p>
+
+          <div className="space-y-2">
+            <Label htmlFor="ec-total">Total general</Label>
+            <Input
+              id="ec-total"
+              type="number"
+              value={valor}
+              onChange={(e) => setValor(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Calculado desde los movimientos: {formatCOP(calculado)}
+            </p>
+          </div>
+        </div>
+        <DialogFooter className="gap-2 sm:justify-between">
+          {cierre.total_general_manual ? (
+            <Button
+              variant="outline"
+              disabled={guardar.isPending}
+              onClick={() => guardar.mutate(null)}
+            >
+              <RotateCcw className="h-4 w-4" />
+              Volver al calculado
+            </Button>
+          ) : (
+            <span />
+          )}
+          <Button
+            disabled={guardar.isPending}
+            onClick={() => guardar.mutate(Number(valor))}
+          >
+            {guardar.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Guardar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

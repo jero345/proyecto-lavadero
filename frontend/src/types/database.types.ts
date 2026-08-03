@@ -215,6 +215,9 @@ export type Database = {
           total_egresos: number;
           total_nomina: number;
           total_general: number;
+          total_general_manual: boolean;
+          total_general_editado_por: string | null;
+          total_general_editado_at: string | null;
           caja: CajaTipo;
           created_by: string;
         };
@@ -228,6 +231,9 @@ export type Database = {
           total_egresos?: number;
           total_nomina?: number;
           total_general?: number;
+          total_general_manual?: boolean;
+          total_general_editado_por?: string | null;
+          total_general_editado_at?: string | null;
           caja?: CajaTipo;
           created_by: string;
         };
@@ -406,6 +412,11 @@ export type Database = {
       eliminar_liquidacion: {
         Args: { p_id: string };
         Returns: undefined;
+      };
+      editar_total_cierre: {
+        /** p_total null = quitar el ajuste manual y volver al total calculado. */
+        Args: { p_cierre_id: string; p_total: number | null };
+        Returns: Database["public"]["Tables"]["cierres_caja"]["Row"];
       };
       editar_movimiento: {
         Args: {
