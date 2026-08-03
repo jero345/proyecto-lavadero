@@ -170,7 +170,18 @@ export default function Ordenes() {
                       <TableCell className="whitespace-nowrap text-muted-foreground">
                         {formatFechaHora(o.created_at)}
                       </TableCell>
-                      <TableCell className="font-medium">{o.placa || "—"}</TableCell>
+                      <TableCell className="font-medium">
+                        {o.placa || "—"}
+                        {/* La nota que escribió quien recibió el vehículo. */}
+                        {o.observaciones && (
+                          <span
+                            className="mt-0.5 block max-w-[220px] truncate text-xs font-normal text-amber-700"
+                            title={o.observaciones}
+                          >
+                            {o.observaciones}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground">
                         {o.empleado_nombre || "—"}
                       </TableCell>

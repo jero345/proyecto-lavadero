@@ -11,6 +11,7 @@ import {
   Phone,
   Printer,
   BellRing,
+  StickyNote,
   UserRound,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -288,6 +289,15 @@ export default function Dashboard() {
                       >
                         {o.empleado_nombre || "Sin empleado asignado"}
                       </p>
+                      {o.observaciones && (
+                        <p
+                          className="mt-1 flex gap-1 text-xs text-amber-700"
+                          title={o.observaciones}
+                        >
+                          <StickyNote className="mt-0.5 h-3 w-3 shrink-0" />
+                          <span className="line-clamp-2">{o.observaciones}</span>
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <Badge className={CLASE_ESTADO[o.estado]} variant="outline">

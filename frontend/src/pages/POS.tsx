@@ -36,7 +36,7 @@ import {
 import type { Cliente, MetodoPago, TipoVehiculo } from "@/types/database.types";
 
 export default function POS() {
-  const { profile, isStaff } = useAuth();
+  const { profile } = useAuth();
   const queryClient = useQueryClient();
 
   const { data: servicios = [], isLoading: cargandoServicios } = useServicios(true);
@@ -280,18 +280,18 @@ export default function POS() {
               />
             </div>
 
-            {isStaff && (
-              <div className="space-y-2">
-                <Label htmlFor="observaciones">Observaciones (opcional)</Label>
-                <Textarea
-                  id="observaciones"
-                  rows={3}
-                  placeholder="Notas o un servicio adicional que no está en la lista…"
-                  value={observaciones}
-                  onChange={(e) => setObservaciones(e.target.value)}
-                />
-              </div>
-            )}
+            {/* Observaciones: las escribe cualquier rol (el empleado es quien
+                recibe el carro y anota el detalle). */}
+            <div className="space-y-2">
+              <Label htmlFor="observaciones">Observaciones (opcional)</Label>
+              <Textarea
+                id="observaciones"
+                rows={3}
+                placeholder="Notas o un servicio adicional que no está en la lista…"
+                value={observaciones}
+                onChange={(e) => setObservaciones(e.target.value)}
+              />
+            </div>
 
             <div className="space-y-2">
               <Label>Método de pago (opcional)</Label>
