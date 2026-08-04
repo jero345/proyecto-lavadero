@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
   Car,
+  ChevronDown,
   Clock,
   DollarSign,
   ArrowRight,
@@ -20,6 +21,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { formatCOP, formatFechaHora } from "@/lib/format";
 import { linkLlamada, linkWhatsApp } from "@/lib/contacto";
@@ -438,19 +446,41 @@ export default function Dashboard() {
 const NEGOCIO = "Todo en 1 automotriz";
 
 /**
- * Mensaje sugerido de WhatsApp según el momento de la orden. El texto se puede
- * editar en WhatsApp antes de enviarlo.
+ * Mensajes listos para enviar por WhatsApp, el más probable de primero. El aviso
+ * de "ya está listo" está SIEMPRE disponible, aunque la orden no se haya
+ * cobrado: primero se avisa, después se cobra. El texto se puede editar en
+ * WhatsApp antes de enviarlo.
  */
-function mensajeWhatsApp(o: OrdenConEmpleado): string {
+function mensajesWhatsApp(o: OrdenConEmpleado) {
   const saludo = o.cliente_nombre ? `Hola ${o.cliente_nombre}` : "Hola";
   const vehiculo = o.placa ? ` (${o.placa})` : "";
-  if (o.estado === "en_proceso") {
-    return `${saludo}, le escribimos de ${NEGOCIO}. Su vehículo${vehiculo} está en proceso de lavado, le avisamos apenas esté listo.`;
+  const cabecera = `${saludo}, le escribimos de ${NEGOCIO}.`;
+
+  const listo = {
+    clave: "listo",
+    label: "Ya está listo",
+    texto: `${cabecera} Su vehículo${vehiculo} ya está listo, puede pasar a recogerlo cuando guste.`,
+  };
+  const conPago = {
+    clave: "pago",
+    label: "Listo y pendiente de pago",
+    texto: `${cabecera} Su vehículo${vehiculo} ya está listo. Queda pendiente el pago de ${formatCOP(o.total)}.`,
+  };
+  const proceso = {
+    clave: "proceso",
+    label: "Va en proceso",
+    texto: `${cabecera} Su vehículo${vehiculo} está en proceso de lavado, le avisamos apenas esté listo.`,
+  };
+  const gracias = {
+    clave: "gracias",
+    label: "Gracias por su visita",
+    texto: `${cabecera} Gracias por visitarnos, fue un gusto atenderle. ¡Lo esperamos pronto!`,
+  };
+
+  if (o.estado === "entregado") {
+    return o.metodo_pago == null ? [conPago, gracias] : [gracias, listo];
   }
-  if (o.metodo_pago == null) {
-    return `${saludo}, le escribimos de ${NEGOCIO}. Su vehículo${vehiculo} ya está listo y queda pendiente el pago de ${formatCOP(o.total)}.`;
-  }
-  return `${saludo}, le escribimos de ${NEGOCIO}. Su vehículo${vehiculo} ya está listo para entrega. ¡Gracias!`;
+  return o.metodo_pago == null ? [listo, conPago, proceso] : [listo, proceso, gracias];
 }
 
 /**
@@ -465,11 +495,37 @@ function ContactoCliente({
   variante?: "fila" | "iconos";
 }) {
   const tel = linkLlamada(orden.cliente_telefono);
-  const whatsapp = linkWhatsApp(orden.cliente_telefono, mensajeWhatsApp(orden));
+  const hayWhatsApp = linkWhatsApp(orden.cliente_telefono) != null;
   // Sin cliente o sin teléfono guardado no hay a quién escribirle.
-  if (!tel && !whatsapp) return null;
+  if (!tel && !hayWhatsApp) return null;
 
   const quien = orden.cliente_nombre ?? "el cliente";
+
+  // El menú deja elegir qué avisar: "ya está listo" está siempre, aunque la
+  // orden todavía no se haya cobrado.
+  const menuWhatsApp = (trigger: React.ReactNode) => (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-72">
+        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+          Escribir a {quien}
+        </DropdownMenuLabel>
+        {mensajesWhatsApp(orden).map((m) => (
+          <DropdownMenuItem key={m.clave} asChild>
+            <a
+              href={linkWhatsApp(orden.cliente_telefono, m.texto) ?? undefined}
+              target="_blank"
+              rel="noreferrer"
+              className="flex flex-col items-start gap-0.5"
+            >
+              <span className="font-medium">{m.label}</span>
+              <span className="text-xs text-muted-foreground">{m.texto}</span>
+            </a>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   if (variante === "iconos") {
     return (
@@ -481,19 +537,17 @@ function ContactoCliente({
             </a>
           </Button>
         )}
-        {whatsapp && (
-          <Button
-            asChild
-            size="sm"
-            variant="ghost"
-            className="text-[#128C7E] hover:bg-emerald-50 hover:text-[#128C7E]"
-            title={`Escribir a ${quien} por WhatsApp`}
-          >
-            <a href={whatsapp} target="_blank" rel="noreferrer">
+        {hayWhatsApp &&
+          menuWhatsApp(
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-[#128C7E] hover:bg-emerald-50 hover:text-[#128C7E]"
+              title={`Escribir a ${quien} por WhatsApp`}
+            >
               <MessageCircle className="h-3.5 w-3.5" />
-            </a>
-          </Button>
-        )}
+            </Button>,
+          )}
       </>
     );
   }
@@ -508,23 +562,18 @@ function ContactoCliente({
           </a>
         </Button>
       )}
-      {whatsapp && (
-        <Button
-          asChild
-          size="sm"
-          className="flex-1 bg-[#25D366] text-white hover:bg-[#1DA851]"
-        >
-          <a
-            href={whatsapp}
-            target="_blank"
-            rel="noreferrer"
+      {hayWhatsApp &&
+        menuWhatsApp(
+          <Button
+            size="sm"
+            className="flex-1 bg-[#25D366] text-white hover:bg-[#1DA851]"
             title={`Escribir a ${quien} por WhatsApp`}
           >
             <MessageCircle className="h-3.5 w-3.5" />
             WhatsApp
-          </a>
-        </Button>
-      )}
+            <ChevronDown className="h-3.5 w-3.5 opacity-80" />
+          </Button>,
+        )}
     </div>
   );
 }
