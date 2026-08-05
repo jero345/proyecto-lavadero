@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calculator, Loader2 } from "lucide-react";
+import { Calculator, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -22,7 +22,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatCOP, formatFecha } from "@/lib/format";
+import { formatCOP, formatFecha, formatFechaHora } from "@/lib/format";
 import { METODOS_PAGO } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
 import { useEmpleados } from "@/hooks/queries";
@@ -57,6 +57,8 @@ export default function Nomina() {
   const [inicio, setInicio] = useState(primerDiaDelMes());
   const [fin, setFin] = useState(hoyISO());
   const [metodo, setMetodo] = useState<MetodoPago>("efectivo");
+  // Liquidación abierta: muestra qué servicios hizo el empleado en ese periodo.
+  const [abierta, setAbierta] = useState<string | null>(null);
 
   const nombrePorId = useMemo(() => {
     const m = new Map<string, string>();
@@ -193,6 +195,7 @@ export default function Nomina() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10" />
                   <TableHead>Empleado</TableHead>
                   <TableHead>Periodo</TableHead>
                   <TableHead className="text-right">Servicios</TableHead>
@@ -203,35 +206,123 @@ export default function Nomina() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {liquidaciones.map((l) => (
-                  <TableRow key={l.id}>
-                    <TableCell className="font-medium">
-                      {nombrePorId.get(l.empleado_id) ?? "—"}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap text-muted-foreground">
-                      {formatFecha(l.fecha_inicio)} – {formatFecha(l.fecha_fin)}
-                    </TableCell>
-                    <TableCell className="text-right">{l.total_servicios}</TableCell>
-                    <TableCell className="text-right">{formatCOP(l.total_facturado)}</TableCell>
-                    <TableCell className="text-right">{l.porcentaje}%</TableCell>
-                    <TableCell className="text-right font-semibold text-primary">
-                      {formatCOP(l.total_pagar)}
-                    </TableCell>
-                    {isStaff && (
-                      <TableCell className="text-right">
-                        <EliminarLiquidacionButton
-                          liquidacion={l}
-                          nombreEmpleado={nombrePorId.get(l.empleado_id) ?? "—"}
-                        />
+                {liquidaciones.map((l) => {
+                  const abiertaEsta = abierta === l.id;
+                  return [
+                    <TableRow key={l.id}>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title={abiertaEsta ? "Ocultar detalle" : "Ver qué servicios hizo"}
+                          onClick={() => setAbierta(abiertaEsta ? null : l.id)}
+                        >
+                          {abiertaEsta ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                        </Button>
                       </TableCell>
-                    )}
-                  </TableRow>
-                ))}
+                      <TableCell className="font-medium">
+                        {nombrePorId.get(l.empleado_id) ?? "—"}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {formatFecha(l.fecha_inicio)} – {formatFecha(l.fecha_fin)}
+                      </TableCell>
+                      <TableCell className="text-right">{l.total_servicios}</TableCell>
+                      <TableCell className="text-right">{formatCOP(l.total_facturado)}</TableCell>
+                      <TableCell className="text-right">{l.porcentaje}%</TableCell>
+                      <TableCell className="text-right font-semibold text-primary">
+                        {formatCOP(l.total_pagar)}
+                      </TableCell>
+                      {isStaff && (
+                        <TableCell className="text-right">
+                          <EliminarLiquidacionButton
+                            liquidacion={l}
+                            nombreEmpleado={nombrePorId.get(l.empleado_id) ?? "—"}
+                          />
+                        </TableCell>
+                      )}
+                    </TableRow>,
+                    abiertaEsta && (
+                      <TableRow key={`${l.id}-detalle`} className="hover:bg-transparent">
+                        <TableCell colSpan={isStaff ? 8 : 7} className="bg-muted/30 p-0">
+                          <DetalleLiquidacion liquidacion={l} />
+                        </TableCell>
+                      </TableRow>
+                    ),
+                  ];
+                })}
               </TableBody>
             </Table>
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/**
+ * Detalle de una liquidación: qué órdenes atendió el empleado en ese periodo y
+ * qué servicios le hizo a cada una. Se reconstruye en el servidor con el mismo
+ * criterio con que se liquidó (`detalle_nomina`, migración 0030).
+ */
+function DetalleLiquidacion({ liquidacion }: { liquidacion: NominaLiquidacion }) {
+  const { data: ordenes = [], isLoading } = useQuery({
+    queryKey: ["nomina", "detalle", liquidacion.id],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("detalle_nomina", {
+        p_empleado_id: liquidacion.empleado_id,
+        p_fecha_inicio: liquidacion.fecha_inicio,
+        p_fecha_fin: liquidacion.fecha_fin,
+      });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  if (isLoading) {
+    return <p className="p-4 text-center text-sm text-muted-foreground">Cargando detalle…</p>;
+  }
+  if (ordenes.length === 0) {
+    return (
+      <p className="p-4 text-center text-sm text-muted-foreground">
+        No hay órdenes de este empleado en el periodo.
+      </p>
+    );
+  }
+
+  return (
+    <div className="p-3">
+      <p className="mb-2 text-xs font-medium text-muted-foreground">
+        {ordenes.length} orden{ordenes.length === 1 ? "" : "es"} atendida
+        {ordenes.length === 1 ? "" : "s"}
+      </p>
+      <div className="overflow-hidden rounded-md border bg-background">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Fecha</TableHead>
+              <TableHead>Placa</TableHead>
+              <TableHead>Servicios</TableHead>
+              <TableHead className="text-right">Total de la orden</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {ordenes.map((o) => (
+              <TableRow key={o.orden_id}>
+                <TableCell className="whitespace-nowrap text-muted-foreground">
+                  {formatFechaHora(o.fecha)}
+                </TableCell>
+                <TableCell className="font-medium">{o.placa || "—"}</TableCell>
+                <TableCell>{o.servicios || "—"}</TableCell>
+                <TableCell className="text-right">{formatCOP(o.total)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }

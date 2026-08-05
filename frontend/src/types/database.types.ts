@@ -413,6 +413,16 @@ export type Database = {
         Args: { p_id: string };
         Returns: undefined;
       };
+      detalle_nomina: {
+        Args: { p_empleado_id: string; p_fecha_inicio: string; p_fecha_fin: string };
+        Returns: {
+          orden_id: string;
+          fecha: string;
+          placa: string | null;
+          total: number;
+          servicios: string | null;
+        }[];
+      };
       editar_total_cierre: {
         /** p_total null = quitar el ajuste manual y volver al total calculado. */
         Args: { p_cierre_id: string; p_total: number | null };

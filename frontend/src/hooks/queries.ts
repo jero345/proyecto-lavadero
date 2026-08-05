@@ -31,24 +31,36 @@ export type OrdenConEmpleado = Orden & {
   empleado_nombre: string | null;
   cliente_nombre: string | null;
   cliente_telefono: string | null;
+  /** Servicios de la orden, alfabéticos (qué se le hizo al vehículo). */
+  servicios: string[];
 };
 
-/** Aplana el empleado (vía ítems) y el cliente embebidos en la orden. */
+/** Aplana el empleado y los servicios (vía ítems) y el cliente de la orden. */
 export function aplanarEmpleado(o: Record<string, unknown>): OrdenConEmpleado {
   const { orden_items, cliente, ...orden } = o as Orden & {
-    orden_items?: { empleado?: { nombre?: string | null } | null }[];
+    orden_items?: {
+      empleado?: { nombre?: string | null } | null;
+      servicio?: { nombre?: string | null } | null;
+    }[];
     cliente?: { nombre?: string | null; telefono?: string | null } | null;
   };
+  const servicios = (orden_items ?? [])
+    .map((i) => i.servicio?.nombre)
+    .filter((n): n is string => Boolean(n))
+    .sort((a, b) => a.localeCompare(b, "es"));
   return {
     ...(orden as Orden),
     empleado_nombre: orden_items?.[0]?.empleado?.nombre ?? null,
     cliente_nombre: cliente?.nombre ?? null,
     cliente_telefono: cliente?.telefono ?? null,
+    servicios,
   };
 }
-/** Select de órdenes con el empleado (vía orden_items) y el cliente embebidos. */
-export const SELECT_ORDEN_CON_EMPLEADO =
-  "*, orden_items(empleado:empleados(nombre)), cliente:clientes(nombre,telefono)";
+/** Select de órdenes con empleado y servicios (vía orden_items) y el cliente. */
+// Debe ser un literal de una sola pieza: supabase-js infiere los tipos del
+// texto del select, y una concatenación lo convierte en `string` y rompe todo.
+// prettier-ignore
+export const SELECT_ORDEN_CON_EMPLEADO = "*, orden_items(empleado:empleados(nombre), servicio:servicios(nombre)), cliente:clientes(nombre,telefono)";
 
 /** Empleados (roster) activos para asignar en órdenes/nómina. */
 export function useEmpleados() {

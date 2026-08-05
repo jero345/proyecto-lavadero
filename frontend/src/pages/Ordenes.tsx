@@ -41,6 +41,8 @@ const SIGUIENTE_ESTADO: Record<EstadoOrden, EstadoOrden | null> = {
 
 type FiltroEstado = EstadoOrden | "todos";
 type FiltroCobro = "todos" | "sin_cobrar" | "pagado";
+/** Empleado A–Z (agrupa el trabajo de cada uno) o las más recientes primero. */
+type Orden_ = "empleado" | "fecha";
 
 export default function Ordenes() {
   const { isStaff } = useAuth();
@@ -51,6 +53,7 @@ export default function Ordenes() {
   const [busqueda, setBusqueda] = useState("");
   const [estado, setEstado] = useState<FiltroEstado>("todos");
   const [cobro, setCobro] = useState<FiltroCobro>("todos");
+  const [orden, setOrden] = useState<Orden_>("empleado");
   const [cobrarDe, setCobrarDe] = useState<Orden | null>(null);
   const [imprimiendoId, setImprimiendoId] = useState<string | null>(null);
 
@@ -84,14 +87,29 @@ export default function Ordenes() {
 
   const filtradas = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    return ordenes.filter((o) => {
+    const lista = ordenes.filter((o) => {
       if (estado !== "todos" && o.estado !== estado) return false;
       if (cobro === "sin_cobrar" && o.metodo_pago != null) return false;
       if (cobro === "pagado" && o.metodo_pago == null) return false;
       if (q && !(o.placa ?? "").toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [ordenes, busqueda, estado, cobro]);
+    // Por empleado: A–Z y, dentro de cada uno, lo más reciente primero. Las
+    // órdenes sin asignar quedan al final.
+    if (orden === "empleado") {
+      return [...lista].sort((a, b) => {
+        const na = a.empleado_nombre ?? "";
+        const nb = b.empleado_nombre ?? "";
+        if (na !== nb) {
+          if (!na) return 1;
+          if (!nb) return -1;
+          return na.localeCompare(nb, "es");
+        }
+        return b.created_at.localeCompare(a.created_at);
+      });
+    }
+    return lista;
+  }, [ordenes, busqueda, estado, cobro, orden]);
 
   const totalMostrado = useMemo(
     () => filtradas.reduce((acc, o) => acc + Number(o.total), 0),
@@ -140,6 +158,15 @@ export default function Ordenes() {
             <SelectItem value="pagado">Pagado</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={orden} onValueChange={(v) => setOrden(v as Orden_)}>
+          <SelectTrigger className="w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="empleado">Empleado (A–Z)</SelectItem>
+            <SelectItem value="fecha">Más recientes primero</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <Card>
@@ -158,6 +185,7 @@ export default function Ordenes() {
                     <TableHead>Fecha</TableHead>
                     <TableHead>Placa</TableHead>
                     <TableHead>Empleado</TableHead>
+                    <TableHead>Servicios</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead>Pago</TableHead>
                     {isStaff && <TableHead className="text-right">Total</TableHead>}
@@ -184,6 +212,19 @@ export default function Ordenes() {
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground">
                         {o.empleado_nombre || "—"}
+                      </TableCell>
+                      {/* Qué se le hizo al vehículo en esta orden. */}
+                      <TableCell className="max-w-[280px] text-sm">
+                        {o.servicios.length === 0 ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          <span
+                            className="line-clamp-2"
+                            title={o.servicios.join(" · ")}
+                          >
+                            {o.servicios.join(" · ")}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline" className={CLASE_ESTADO[o.estado]}>
