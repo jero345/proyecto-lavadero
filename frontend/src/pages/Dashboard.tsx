@@ -21,6 +21,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -494,12 +503,43 @@ function ContactoCliente({
   orden: OrdenConEmpleado;
   variante?: "fila" | "iconos";
 }) {
+  const [pidiendoTelefono, setPidiendoTelefono] = useState(false);
   const tel = linkLlamada(orden.cliente_telefono);
   const hayWhatsApp = linkWhatsApp(orden.cliente_telefono) != null;
-  // Sin cliente o sin teléfono guardado no hay a quién escribirle.
-  if (!tel && !hayWhatsApp) return null;
-
   const quien = orden.cliente_nombre ?? "el cliente";
+
+  // Sin teléfono no hay a quién escribirle: si la orden tiene cliente, se puede
+  // guardar el número aquí mismo; si no tiene, se explica por qué no hay botones.
+  if (!tel && !hayWhatsApp) {
+    if (!orden.cliente_id) {
+      return variante === "fila" ? (
+        <p className="mt-3 text-xs italic text-muted-foreground">
+          Orden sin cliente: no hay a quién escribirle.
+        </p>
+      ) : null;
+    }
+    return (
+      <>
+        <Button
+          size="sm"
+          variant={variante === "fila" ? "outline" : "ghost"}
+          className={variante === "fila" ? "mt-3 w-full" : undefined}
+          title={`Guardar el teléfono de ${quien}`}
+          onClick={() => setPidiendoTelefono(true)}
+        >
+          <Phone className="h-3.5 w-3.5" />
+          {variante === "fila" ? "Agregar teléfono" : ""}
+        </Button>
+        {pidiendoTelefono && (
+          <AgregarTelefonoDialog
+            clienteId={orden.cliente_id}
+            nombre={quien}
+            onClose={() => setPidiendoTelefono(false)}
+          />
+        )}
+      </>
+    );
+  }
 
   // El menú deja elegir qué avisar: "ya está listo" está siempre, aunque la
   // orden todavía no se haya cobrado.
@@ -575,6 +615,74 @@ function ContactoCliente({
           </Button>,
         )}
     </div>
+  );
+}
+
+/** Guarda el teléfono del cliente de la orden para poder escribirle. */
+function AgregarTelefonoDialog({
+  clienteId,
+  nombre,
+  onClose,
+}: {
+  clienteId: string;
+  nombre: string;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [telefono, setTelefono] = useState("");
+
+  const guardar = useMutation({
+    mutationFn: async () => {
+      const limpio = telefono.trim();
+      if (limpio.replace(/\D/g, "").length < 7) throw new Error("Teléfono incompleto");
+      const { error } = await supabase
+        .from("clientes")
+        .update({ telefono: limpio })
+        .eq("id", clienteId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Teléfono guardado", { description: `Ya puedes escribirle a ${nombre}` });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["ordenes"] });
+      queryClient.invalidateQueries({ queryKey: ["clientes"] });
+      onClose();
+    },
+    onError: (e: unknown) =>
+      toast.error("No se pudo guardar", {
+        description: e instanceof Error ? e.message : "",
+      }),
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Teléfono de {nombre}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-2">
+          <Label htmlFor="tel-cliente">Celular</Label>
+          <Input
+            id="tel-cliente"
+            inputMode="tel"
+            placeholder="300 000 0000"
+            value={telefono}
+            autoFocus
+            onChange={(e) => setTelefono(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && guardar.mutate()}
+          />
+          <p className="text-xs text-muted-foreground">
+            Queda guardado en la ficha del cliente para las próximas visitas.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button onClick={() => guardar.mutate()} disabled={guardar.isPending}>
+            {guardar.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Guardar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
