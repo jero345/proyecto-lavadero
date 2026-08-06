@@ -452,7 +452,7 @@ export default function Dashboard() {
 }
 
 /** Nombre comercial que ve el cliente en los mensajes. */
-const NEGOCIO = "Todo en 1 automotriz";
+const NEGOCIO = "TODO EN 1 AUTOMOTRIZ";
 
 /**
  * Mensajes listos para enviar por WhatsApp, el más probable de primero. El aviso
@@ -467,29 +467,21 @@ function mensajesWhatsApp(o: OrdenConEmpleado) {
 
   const listo = {
     clave: "listo",
-    label: "Ya está listo",
-    texto: `${cabecera} Su vehículo${vehiculo} ya está listo, puede pasar a recogerlo cuando guste.`,
-  };
-  const conPago = {
-    clave: "pago",
-    label: "Listo y pendiente de pago",
-    texto: `${cabecera} Su vehículo${vehiculo} ya está listo. Queda pendiente el pago de ${formatCOP(o.total)}.`,
+    label: "Listo y pendiente de entrega",
+    texto: `${cabecera} Su vehículo${vehiculo} ya está listo. Puede pasar a recogerlo. Gracias.`,
   };
   const proceso = {
     clave: "proceso",
     label: "Va en proceso",
     texto: `${cabecera} Su vehículo${vehiculo} está en proceso de lavado, le avisamos apenas esté listo.`,
   };
-  const gracias = {
-    clave: "gracias",
-    label: "Gracias por su visita",
-    texto: `${cabecera} Gracias por visitarnos, fue un gusto atenderle. ¡Lo esperamos pronto!`,
+  const entregado = {
+    clave: "entregado",
+    label: "Entregado",
+    texto: `Para ${NEGOCIO} es muy importante atender bien a nuestros clientes y brindar el mejor servicio posible. ¡Vuelve pronto!`,
   };
 
-  if (o.estado === "entregado") {
-    return o.metodo_pago == null ? [conPago, gracias] : [gracias, listo];
-  }
-  return o.metodo_pago == null ? [listo, conPago, proceso] : [listo, proceso, gracias];
+  return o.estado === "entregado" ? [entregado, listo] : [listo, proceso, entregado];
 }
 
 /**
