@@ -62,16 +62,18 @@ export function aplanarEmpleado(o: Record<string, unknown>): OrdenConEmpleado {
 // prettier-ignore
 export const SELECT_ORDEN_CON_EMPLEADO = "*, orden_items(empleado:empleados(nombre), servicio:servicios(nombre)), cliente:clientes(nombre,telefono)";
 
-/** Empleados (roster) activos para asignar en órdenes/nómina. */
-export function useEmpleados() {
+/**
+ * Empleados (roster). Por defecto solo los activos, que son los que se pueden
+ * asignar a una orden; con `soloActivos=false` trae también los inactivos, para
+ * poder mostrar el nombre de quien ya no trabaja pero tiene historial.
+ */
+export function useEmpleados(soloActivos = true) {
   return useQuery({
-    queryKey: ["empleados"],
+    queryKey: ["empleados", soloActivos],
     queryFn: async (): Promise<Empleado[]> => {
-      const { data, error } = await supabase
-        .from("empleados")
-        .select("*")
-        .eq("activo", true)
-        .order("nombre");
+      let q = supabase.from("empleados").select("*").order("nombre");
+      if (soloActivos) q = q.eq("activo", true);
+      const { data, error } = await q;
       if (error) throw error;
       return data;
     },

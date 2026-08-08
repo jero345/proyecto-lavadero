@@ -1,6 +1,13 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calculator, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import {
+  Calculator,
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  FolderOpen,
+  Loader2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -52,6 +59,8 @@ export default function Nomina() {
   const queryClient = useQueryClient();
   const { isStaff } = useAuth();
   const { data: empleados = [] } = useEmpleados();
+  // Incluye inactivos: sus liquidaciones viejas tienen que seguir con nombre.
+  const { data: todosLosEmpleados = [] } = useEmpleados(false);
 
   const [empleadoId, setEmpleadoId] = useState("");
   const [inicio, setInicio] = useState(primerDiaDelMes());
@@ -59,12 +68,21 @@ export default function Nomina() {
   const [metodo, setMetodo] = useState<MetodoPago>("efectivo");
   // Liquidación abierta: muestra qué servicios hizo el empleado en ese periodo.
   const [abierta, setAbierta] = useState<string | null>(null);
+  // Carpetas de empleado abiertas (cada trabajador lleva sus liquidaciones).
+  const [carpetas, setCarpetas] = useState<Set<string>>(new Set());
+
+  const alternarCarpeta = (id: string) =>
+    setCarpetas((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
 
   const nombrePorId = useMemo(() => {
     const m = new Map<string, string>();
-    for (const e of empleados) m.set(e.id, e.nombre);
+    for (const e of todosLosEmpleados) m.set(e.id, e.nombre);
     return m;
-  }, [empleados]);
+  }, [todosLosEmpleados]);
 
   const { data: liquidaciones = [] } = useQuery({
     queryKey: ["nomina", "liquidaciones"],
@@ -78,6 +96,25 @@ export default function Nomina() {
       return data;
     },
   });
+
+  // Una "carpeta" por trabajador, alfabética, con sus liquidaciones adentro.
+  const porEmpleado = useMemo(() => {
+    const m = new Map<string, NominaLiquidacion[]>();
+    for (const l of liquidaciones) {
+      const lista = m.get(l.empleado_id);
+      if (lista) lista.push(l);
+      else m.set(l.empleado_id, [l]);
+    }
+    return [...m.entries()]
+      .map(([id, ls]) => ({
+        id,
+        nombre: nombrePorId.get(id) ?? "Empleado eliminado",
+        liquidaciones: ls,
+        totalPagado: ls.reduce((acc, l) => acc + Number(l.total_pagar), 0),
+        servicios: ls.reduce((acc, l) => acc + Number(l.total_servicios), 0),
+      }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  }, [liquidaciones, nombrePorId]);
 
   const liquidar = useMutation({
     mutationFn: async () => {
@@ -182,83 +219,135 @@ export default function Nomina() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Liquidaciones</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {liquidaciones.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
+      {/* Liquidaciones: una carpeta por trabajador, para no mezclarlos. */}
+      <div className="space-y-3">
+        <h2 className="text-lg font-semibold">Liquidaciones por trabajador</h2>
+
+        {liquidaciones.length === 0 ? (
+          <Card>
+            <CardContent className="py-8 text-center text-sm text-muted-foreground">
               Aún no hay liquidaciones.
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10" />
-                  <TableHead>Empleado</TableHead>
-                  <TableHead>Periodo</TableHead>
-                  <TableHead className="text-right">Servicios</TableHead>
-                  <TableHead className="text-right">Facturado</TableHead>
-                  <TableHead className="text-right">%</TableHead>
-                  <TableHead className="text-right">A pagar</TableHead>
-                  {isStaff && <TableHead className="w-10" />}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {liquidaciones.map((l) => {
-                  const abiertaEsta = abierta === l.id;
-                  return [
-                    <TableRow key={l.id}>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          title={abiertaEsta ? "Ocultar detalle" : "Ver qué servicios hizo"}
-                          onClick={() => setAbierta(abiertaEsta ? null : l.id)}
-                        >
-                          {abiertaEsta ? (
-                            <ChevronDown className="h-4 w-4" />
-                          ) : (
-                            <ChevronRight className="h-4 w-4" />
-                          )}
-                        </Button>
-                      </TableCell>
-                      <TableCell className="font-medium">
-                        {nombrePorId.get(l.empleado_id) ?? "—"}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap text-muted-foreground">
-                        {formatFecha(l.fecha_inicio)} – {formatFecha(l.fecha_fin)}
-                      </TableCell>
-                      <TableCell className="text-right">{l.total_servicios}</TableCell>
-                      <TableCell className="text-right">{formatCOP(l.total_facturado)}</TableCell>
-                      <TableCell className="text-right">{l.porcentaje}%</TableCell>
-                      <TableCell className="text-right font-semibold text-primary">
-                        {formatCOP(l.total_pagar)}
-                      </TableCell>
-                      {isStaff && (
-                        <TableCell className="text-right">
-                          <EliminarLiquidacionButton
-                            liquidacion={l}
-                            nombreEmpleado={nombrePorId.get(l.empleado_id) ?? "—"}
-                          />
-                        </TableCell>
-                      )}
-                    </TableRow>,
-                    abiertaEsta && (
-                      <TableRow key={`${l.id}-detalle`} className="hover:bg-transparent">
-                        <TableCell colSpan={isStaff ? 8 : 7} className="bg-muted/30 p-0">
-                          <DetalleLiquidacion liquidacion={l} />
-                        </TableCell>
-                      </TableRow>
-                    ),
-                  ];
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+        ) : (
+          porEmpleado.map((emp) => {
+            const abiertaCarpeta = carpetas.has(emp.id);
+            return (
+              <Card key={emp.id} className="overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => alternarCarpeta(emp.id)}
+                  className="flex w-full items-center gap-3 p-4 text-left transition-colors hover:bg-accent/50"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
+                    {abiertaCarpeta ? (
+                      <FolderOpen className="h-4 w-4" />
+                    ) : (
+                      <Folder className="h-4 w-4" />
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-semibold">{emp.nombre}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {emp.liquidaciones.length} liquidación
+                      {emp.liquidaciones.length === 1 ? "" : "es"} · {emp.servicios} servicio
+                      {emp.servicios === 1 ? "" : "s"}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right">
+                    <span className="block text-xs text-muted-foreground">Pagado</span>
+                    <span className="block font-semibold text-primary">
+                      {formatCOP(emp.totalPagado)}
+                    </span>
+                  </span>
+                  {abiertaCarpeta ? (
+                    <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  )}
+                </button>
+
+                {abiertaCarpeta && (
+                  <div className="border-t">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-10" />
+                          <TableHead>Periodo</TableHead>
+                          <TableHead className="text-right">Servicios</TableHead>
+                          <TableHead className="text-right">Facturado</TableHead>
+                          <TableHead className="text-right">%</TableHead>
+                          <TableHead className="text-right">A pagar</TableHead>
+                          {isStaff && <TableHead className="w-10" />}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {emp.liquidaciones.map((l) => {
+                          const abiertaEsta = abierta === l.id;
+                          return [
+                            <TableRow key={l.id}>
+                              <TableCell>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  title={
+                                    abiertaEsta
+                                      ? "Ocultar detalle"
+                                      : "Ver qué servicios hizo"
+                                  }
+                                  onClick={() => setAbierta(abiertaEsta ? null : l.id)}
+                                >
+                                  {abiertaEsta ? (
+                                    <ChevronDown className="h-4 w-4" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap font-medium">
+                                {formatFecha(l.fecha_inicio)} – {formatFecha(l.fecha_fin)}
+                              </TableCell>
+                              <TableCell className="text-right">{l.total_servicios}</TableCell>
+                              <TableCell className="text-right">
+                                {formatCOP(l.total_facturado)}
+                              </TableCell>
+                              <TableCell className="text-right">{l.porcentaje}%</TableCell>
+                              <TableCell className="text-right font-semibold text-primary">
+                                {formatCOP(l.total_pagar)}
+                              </TableCell>
+                              {isStaff && (
+                                <TableCell className="text-right">
+                                  <EliminarLiquidacionButton
+                                    liquidacion={l}
+                                    nombreEmpleado={emp.nombre}
+                                  />
+                                </TableCell>
+                              )}
+                            </TableRow>,
+                            abiertaEsta && (
+                              <TableRow
+                                key={`${l.id}-detalle`}
+                                className="hover:bg-transparent"
+                              >
+                                <TableCell
+                                  colSpan={isStaff ? 7 : 6}
+                                  className="bg-muted/30 p-0"
+                                >
+                                  <DetalleLiquidacion liquidacion={l} />
+                                </TableCell>
+                              </TableRow>
+                            ),
+                          ];
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </Card>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }

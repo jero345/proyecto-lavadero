@@ -1,6 +1,14 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, DollarSign, Loader2, Printer, Search } from "lucide-react";
+import {
+  ArrowRight,
+  ChevronDown,
+  ChevronRight,
+  DollarSign,
+  Loader2,
+  Printer,
+  Search,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -24,7 +32,7 @@ import {
 } from "@/components/ui/select";
 import { CobrarOrdenDialog } from "@/components/CobrarOrdenDialog";
 import { EliminarOrdenButton } from "@/components/EliminarOrdenButton";
-import { formatCOP, formatFechaHora } from "@/lib/format";
+import { formatCOP, formatFecha, formatFechaHora } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
 import { imprimirReciboDeOrden } from "@/lib/recibo-orden";
 import { CLASE_ESTADO, LABEL_ESTADO, LABEL_METODO_PAGO } from "@/lib/dominio";
@@ -43,6 +51,30 @@ type FiltroEstado = EstadoOrden | "todos";
 type FiltroCobro = "todos" | "sin_cobrar" | "pagado";
 /** Empleado A–Z (agrupa el trabajo de cada uno) o las más recientes primero. */
 type Orden_ = "empleado" | "fecha";
+
+/** Día local (YYYY-MM-DD) de una fecha ISO. No usar toISOString(): da UTC. */
+function diaLocal(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate(),
+  ).padStart(2, "0")}`;
+}
+
+/** "Hoy", "Ayer" o la fecha con el día de la semana. */
+function etiquetaDia(dia: string): string {
+  const hoy = diaLocal(new Date().toISOString());
+  if (dia === hoy) return "Hoy";
+  const ayer = new Date();
+  ayer.setDate(ayer.getDate() - 1);
+  if (dia === diaLocal(ayer.toISOString())) return "Ayer";
+  const texto = formatFecha(dia, {
+    weekday: "long",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  return texto.charAt(0).toUpperCase() + texto.slice(1);
+}
 
 export default function Ordenes() {
   const { isStaff } = useAuth();
@@ -115,6 +147,39 @@ export default function Ordenes() {
     () => filtradas.reduce((acc, o) => acc + Number(o.total), 0),
     [filtradas],
   );
+
+  // Una carpeta por día (la más reciente arriba): las de días pasados quedan
+  // recogidas y no se mezclan con las de hoy.
+  const porDia = useMemo(() => {
+    const m = new Map<string, typeof filtradas>();
+    for (const o of filtradas) {
+      const dia = diaLocal(o.created_at);
+      const lista = m.get(dia);
+      if (lista) lista.push(o);
+      else m.set(dia, [o]);
+    }
+    return [...m.entries()]
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([dia, ordenes]) => ({
+        dia,
+        ordenes,
+        total: ordenes.reduce((acc, o) => acc + Number(o.total), 0),
+      }));
+  }, [filtradas]);
+
+  // null = comportamiento por defecto: solo el día más reciente abierto.
+  const [diasAbiertos, setDiasAbiertos] = useState<Set<string> | null>(null);
+  const diaReciente = porDia[0]?.dia;
+  const estaAbierto = (dia: string) =>
+    diasAbiertos ? diasAbiertos.has(dia) : dia === diaReciente;
+
+  function alternarDia(dia: string) {
+    setDiasAbiertos((prev) => {
+      const next = new Set(prev ?? (diaReciente ? [diaReciente] : []));
+      if (!next.delete(dia)) next.add(dia);
+      return next;
+    });
+  }
 
   return (
     <div className="space-y-4">
@@ -193,7 +258,29 @@ export default function Ordenes() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtradas.map((o) => (
+                  {porDia.map(({ dia, ordenes, total }) => [
+                    /* Cabecera de la carpeta del día */
+                    <TableRow
+                      key={`dia-${dia}`}
+                      className="cursor-pointer bg-muted/40 hover:bg-muted/60"
+                      onClick={() => alternarDia(dia)}
+                    >
+                      <TableCell colSpan={isStaff ? 8 : 7} className="py-2">
+                        <span className="flex items-center gap-2 text-sm font-semibold">
+                          {estaAbierto(dia) ? (
+                            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+                          )}
+                          {etiquetaDia(dia)}
+                          <span className="font-normal text-muted-foreground">
+                            · {ordenes.length} orden{ordenes.length === 1 ? "" : "es"}
+                            {isStaff && ` · ${formatCOP(total)}`}
+                          </span>
+                        </span>
+                      </TableCell>
+                    </TableRow>,
+                    ...(estaAbierto(dia) ? ordenes : []).map((o) => (
                     <TableRow key={o.id}>
                       <TableCell className="whitespace-nowrap text-muted-foreground">
                         {formatFechaHora(o.created_at)}
@@ -293,7 +380,8 @@ export default function Ordenes() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    )),
+                  ])}
                 </TableBody>
               </Table>
             </div>
