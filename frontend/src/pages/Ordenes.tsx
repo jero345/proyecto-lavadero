@@ -36,7 +36,6 @@ import { formatCOP, formatFecha, formatFechaHora } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
 import { imprimirReciboDeOrden } from "@/lib/recibo-orden";
 import { CLASE_ESTADO, LABEL_ESTADO, LABEL_METODO_PAGO } from "@/lib/dominio";
-import { useAuth } from "@/hooks/useAuth";
 import { useOrdenes } from "@/hooks/queries";
 import { useRealtimeOrdenes } from "@/hooks/useRealtimeOrdenes";
 import type { EstadoOrden, Orden } from "@/types/database.types";
@@ -76,8 +75,9 @@ function etiquetaDia(dia: string): string {
   return texto.charAt(0).toUpperCase() + texto.slice(1);
 }
 
+// La vista de Órdenes es la misma para todos los roles: el empleado ve los
+// mismos datos y las mismas acciones que el staff (incluidos totales y recibo).
 export default function Ordenes() {
-  const { isStaff } = useAuth();
   const queryClient = useQueryClient();
   useRealtimeOrdenes();
   const { data: ordenes = [], isLoading } = useOrdenes();
@@ -123,7 +123,14 @@ export default function Ordenes() {
       if (estado !== "todos" && o.estado !== estado) return false;
       if (cobro === "sin_cobrar" && o.metodo_pago != null) return false;
       if (cobro === "pagado" && o.metodo_pago == null) return false;
-      if (q && !(o.placa ?? "").toLowerCase().includes(q)) return false;
+      // Busca por placa o por nombre del cliente (las dos formas de ubicar el carro).
+      if (
+        q &&
+        !(o.placa ?? "").toLowerCase().includes(q) &&
+        !(o.cliente_nombre ?? "").toLowerCase().includes(q)
+      ) {
+        return false;
+      }
       return true;
     });
     // Por empleado: A–Z y, dentro de cada uno, lo más reciente primero. Las
@@ -187,7 +194,7 @@ export default function Ordenes() {
         <h2 className="text-lg font-semibold">Órdenes</h2>
         <span className="text-sm text-muted-foreground">
           {filtradas.length} orden{filtradas.length === 1 ? "" : "es"}
-          {isStaff && ` · ${formatCOP(totalMostrado)}`}
+          {` · ${formatCOP(totalMostrado)}`}
         </span>
       </div>
 
@@ -196,7 +203,7 @@ export default function Ordenes() {
         <div className="relative flex-1 sm:max-w-xs">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Buscar por placa…"
+            placeholder="Buscar por placa o cliente…"
             className="pl-8"
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
@@ -249,11 +256,12 @@ export default function Ordenes() {
                   <TableRow>
                     <TableHead>Fecha</TableHead>
                     <TableHead>Placa</TableHead>
+                    <TableHead>Cliente</TableHead>
                     <TableHead>Empleado</TableHead>
                     <TableHead>Servicios</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead>Pago</TableHead>
-                    {isStaff && <TableHead className="text-right">Total</TableHead>}
+                    <TableHead className="text-right">Total</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -265,7 +273,7 @@ export default function Ordenes() {
                       className="cursor-pointer bg-muted/40 hover:bg-muted/60"
                       onClick={() => alternarDia(dia)}
                     >
-                      <TableCell colSpan={isStaff ? 8 : 7} className="py-2">
+                      <TableCell colSpan={9} className="py-2">
                         <span className="flex items-center gap-2 text-sm font-semibold">
                           {estaAbierto(dia) ? (
                             <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -275,7 +283,7 @@ export default function Ordenes() {
                           {etiquetaDia(dia)}
                           <span className="font-normal text-muted-foreground">
                             · {ordenes.length} orden{ordenes.length === 1 ? "" : "es"}
-                            {isStaff && ` · ${formatCOP(total)}`}
+                            {` · ${formatCOP(total)}`}
                           </span>
                         </span>
                       </TableCell>
@@ -295,6 +303,12 @@ export default function Ordenes() {
                           >
                             {o.observaciones}
                           </span>
+                        )}
+                      </TableCell>
+                      {/* De quién es el carro. */}
+                      <TableCell className="max-w-[160px] truncate font-medium">
+                        {o.cliente_nombre || (
+                          <span className="font-normal text-muted-foreground">—</span>
                         )}
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground">
@@ -332,28 +346,24 @@ export default function Ordenes() {
                           </span>
                         )}
                       </TableCell>
-                      {isStaff && (
-                        <TableCell className="text-right font-medium">
-                          {formatCOP(o.total)}
-                        </TableCell>
-                      )}
+                      <TableCell className="text-right font-medium">
+                        {formatCOP(o.total)}
+                      </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap items-center justify-end gap-1">
-                          {isStaff && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={imprimiendoId === o.id}
-                              title="Imprimir recibo"
-                              onClick={() => void imprimir(o)}
-                            >
-                              {imprimiendoId === o.id ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Printer className="h-3.5 w-3.5" />
-                              )}
-                            </Button>
-                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={imprimiendoId === o.id}
+                            title="Imprimir recibo"
+                            onClick={() => void imprimir(o)}
+                          >
+                            {imprimiendoId === o.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Printer className="h-3.5 w-3.5" />
+                            )}
+                          </Button>
                           {o.metodo_pago == null && (
                             <Button size="sm" variant="secondary" onClick={() => setCobrarDe(o)}>
                               <DollarSign className="h-3.5 w-3.5" />
