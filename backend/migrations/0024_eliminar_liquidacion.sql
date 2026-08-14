@@ -1,3 +1,4 @@
+
 -- ============================================================================
 -- CAR WASH SERVICES — Migración 0024: Borrar liquidaciones + orden = 1 servicio
 -- Dos cambios pedidos por el negocio:
