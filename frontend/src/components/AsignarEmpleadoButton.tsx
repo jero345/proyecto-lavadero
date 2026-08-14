@@ -52,6 +52,8 @@ export function AsignarEmpleadoButton({
       toast.success("Empleado asignado");
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["ordenes"] });
+      // Asignar trabajador cambia quién queda pendiente de liquidar hoy.
+      queryClient.invalidateQueries({ queryKey: ["nomina"] });
       setOpen(false);
     },
     onError: (e: unknown) =>

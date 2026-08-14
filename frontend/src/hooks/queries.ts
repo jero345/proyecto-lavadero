@@ -125,6 +125,21 @@ export function useOrdenes() {
 }
 
 /**
+ * Trabajadores con órdenes de hoy a los que todavía no se les liquidó la nómina
+ * del día. Base del aviso "falta liquidar" (Dashboard y Nómina).
+ */
+export function useNominaPendiente() {
+  return useQuery({
+    queryKey: ["nomina", "pendientes"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("empleados_pendientes_liquidar");
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
+/**
  * Órdenes pendientes de cobro (metodo_pago null), en cualquier estado.
  * Base de los "recordatorios de sin cobrar".
  */

@@ -143,6 +143,8 @@ export default function POS() {
       queryClient.invalidateQueries({ queryKey: ["ordenes"] });
       queryClient.invalidateQueries({ queryKey: ["caja"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      // La orden nueva puede dejar al trabajador pendiente de liquidar hoy.
+      queryClient.invalidateQueries({ queryKey: ["nomina"] });
       reset();
     },
     onError: (e: unknown) => {

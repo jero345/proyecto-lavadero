@@ -35,6 +35,7 @@ import { supabase } from "@/lib/supabase";
 import { useEmpleados } from "@/hooks/queries";
 import { useAuth } from "@/hooks/useAuth";
 import { EliminarLiquidacionButton } from "@/components/EliminarLiquidacionButton";
+import { AvisoNominaPendiente } from "@/components/AvisoNominaPendiente";
 import type { MetodoPago, NominaLiquidacion } from "@/types/database.types";
 
 /**
@@ -116,6 +117,18 @@ export default function Nomina() {
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, [liquidaciones, nombrePorId]);
 
+  // A cada trabajador se le liquida una sola vez al día (lo impone el servidor,
+  // migración 0032). Acá se refleja en la pantalla para no dejar intentarlo.
+  const liquidadosHoy = useMemo(() => {
+    const hoy = hoyISO();
+    const s = new Set<string>();
+    for (const l of liquidaciones) {
+      if (fechaLocalISO(new Date(l.created_at)) === hoy) s.add(l.empleado_id);
+    }
+    return s;
+  }, [liquidaciones]);
+  const yaLiquidadoHoy = empleadoId !== "" && liquidadosHoy.has(empleadoId);
+
   const liquidar = useMutation({
     mutationFn: async () => {
       if (!empleadoId) throw new Error("Selecciona un empleado");
@@ -149,6 +162,9 @@ export default function Nomina() {
 
   return (
     <div className="space-y-6">
+      {/* Quiénes trabajaron hoy y todavía no tienen su liquidación del día. */}
+      <AvisoNominaPendiente enlazar={false} />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Liquidar nómina</CardTitle>
@@ -165,6 +181,7 @@ export default function Nomina() {
                   {empleados.map((e) => (
                     <SelectItem key={e.id} value={e.id}>
                       {e.nombre} · {e.porcentaje_comision}%
+                      {liquidadosHoy.has(e.id) && " · ya liquidado hoy"}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -203,7 +220,15 @@ export default function Nomina() {
                 </SelectContent>
               </Select>
             </div>
-            <Button onClick={() => liquidar.mutate()} disabled={liquidar.isPending}>
+            <Button
+              onClick={() => liquidar.mutate()}
+              disabled={liquidar.isPending || yaLiquidadoHoy}
+              title={
+                yaLiquidadoHoy
+                  ? "A este trabajador ya se le liquidó hoy"
+                  : undefined
+              }
+            >
               {liquidar.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -212,10 +237,18 @@ export default function Nomina() {
               Liquidar
             </Button>
           </div>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Al liquidar, el monto a pagar se registra como <strong>egreso</strong> en la
-            caja principal con el método elegido.
-          </p>
+          {yaLiquidadoHoy ? (
+            <p className="mt-3 text-xs font-medium text-amber-700">
+              A este trabajador ya se le liquidó hoy. Solo se puede liquidar una vez
+              al día.
+            </p>
+          ) : (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Al liquidar, el monto a pagar se registra como <strong>egreso</strong> en
+              la caja principal con el método elegido. Cada trabajador se liquida una
+              sola vez al día.
+            </p>
+          )}
         </CardContent>
       </Card>
 

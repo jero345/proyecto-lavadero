@@ -46,6 +46,7 @@ import { CobrarOrdenDialog } from "@/components/CobrarOrdenDialog";
 import { NuevoMovimientoDialog } from "@/components/NuevoMovimientoDialog";
 import { EliminarOrdenButton } from "@/components/EliminarOrdenButton";
 import { AsignarEmpleadoButton } from "@/components/AsignarEmpleadoButton";
+import { AvisoNominaPendiente } from "@/components/AvisoNominaPendiente";
 import { CLASE_ESTADO, LABEL_ESTADO } from "@/lib/dominio";
 import {
   useOrdenesSinCobrar,
@@ -230,6 +231,9 @@ export default function Dashboard() {
           <ArrowRight className="h-5 w-5 shrink-0" />
         </Link>
       )}
+
+      {/* Recordatorio: trabajadores de hoy sin liquidar */}
+      <AvisoNominaPendiente />
 
       {/* Registro rápido de un gasto: también lo puede hacer el empleado
           (el servidor solo le permite egresos de la caja principal). */}
