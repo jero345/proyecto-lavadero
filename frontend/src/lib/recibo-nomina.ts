@@ -23,18 +23,32 @@ export async function imprimirComprobanteNomina(
   if (error) throw error;
 
   const ordenes = data ?? [];
+  const porcentaje = Number(liquidacion.porcentaje);
 
-  // Dos líneas por orden: placa + fecha arriba, servicios + total abajo. La
+  // El comprobante muestra lo que GANA el trabajador en cada orden (su %), no
+  // lo que se le facturó al cliente.
+  const comisiones = ordenes.map((o) => Math.round((Number(o.total) * porcentaje) / 100));
+
+  // El "A pagar" se calculó sobre el total del periodo, así que redondear orden
+  // por orden puede dar unos pesos de diferencia. La diferencia se carga a la
+  // última línea para que las líneas sumen exactamente el total pagado.
+  const sumaComisiones = comisiones.reduce((acc, c) => acc + c, 0);
+  const ajuste = Number(liquidacion.total_pagar) - sumaComisiones;
+  if (comisiones.length > 0 && ajuste !== 0) {
+    comisiones[comisiones.length - 1] += ajuste;
+  }
+
+  // Dos líneas por orden: placa + fecha arriba, servicios + comisión abajo. La
   // placa va primero porque es lo que identifica el trabajo de un vistazo.
   const filas = ordenes
     .map(
-      (o) => `<tr>
+      (o, i) => `<tr>
         <td class="bold">${esc(o.placa || "—")}</td>
         <td class="precio small">${esc(formatFechaHora(o.fecha))}</td>
       </tr>
       <tr>
         <td class="small pb">${esc(o.servicios || "—")}</td>
-        <td class="precio pb">${formatCOP(o.total)}</td>
+        <td class="precio pb">${formatCOP(comisiones[i])}</td>
       </tr>`,
     )
     .join("");
@@ -65,11 +79,11 @@ export async function imprimirComprobanteNomina(
 
     <div class="sep"></div>
     <div class="bold">TRABAJO DEL PERIODO</div>
+    <div class="small">Valores = tu ${porcentaje}% de cada orden</div>
     ${cuerpoOrdenes}
 
     <div class="sep"></div>
     <div class="row"><span>Ordenes atendidas</span><span class="r">${liquidacion.total_servicios}</span></div>
-    <div class="row"><span>Total facturado</span><span class="r">${formatCOP(liquidacion.total_facturado)}</span></div>
     <div class="row"><span>Comision</span><span class="r">${liquidacion.porcentaje}%</span></div>
 
     <div class="sep"></div>
