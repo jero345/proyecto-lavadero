@@ -7,6 +7,7 @@ import {
   Folder,
   FolderOpen,
   Loader2,
+  Printer,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -32,6 +33,7 @@ import {
 import { formatCOP, formatFecha, formatFechaHora } from "@/lib/format";
 import { METODOS_PAGO } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
+import { imprimirComprobanteNomina } from "@/lib/recibo-nomina";
 import { useEmpleados } from "@/hooks/queries";
 import { useAuth } from "@/hooks/useAuth";
 import { EliminarLiquidacionButton } from "@/components/EliminarLiquidacionButton";
@@ -69,6 +71,8 @@ export default function Nomina() {
   const [metodo, setMetodo] = useState<MetodoPago>("efectivo");
   // Liquidación abierta: muestra qué servicios hizo el empleado en ese periodo.
   const [abierta, setAbierta] = useState<string | null>(null);
+  // Liquidación que se está imprimiendo (para el spinner del botón).
+  const [imprimiendoId, setImprimiendoId] = useState<string | null>(null);
   // Carpetas de empleado abiertas (cada trabajador lleva sus liquidaciones).
   const [carpetas, setCarpetas] = useState<Set<string>>(new Set());
 
@@ -128,6 +132,20 @@ export default function Nomina() {
     return s;
   }, [liquidaciones]);
   const yaLiquidadoHoy = empleadoId !== "" && liquidadosHoy.has(empleadoId);
+
+  // Comprobante del trabajador: qué hizo en el periodo y cuánto se le paga.
+  async function imprimirComprobante(l: NominaLiquidacion, nombre: string) {
+    setImprimiendoId(l.id);
+    try {
+      await imprimirComprobanteNomina(l, nombre);
+    } catch (e) {
+      toast.error("No se pudo generar el comprobante", {
+        description: e instanceof Error ? e.message : "",
+      });
+    } finally {
+      setImprimiendoId(null);
+    }
+  }
 
   const liquidar = useMutation({
     mutationFn: async () => {
@@ -311,6 +329,8 @@ export default function Nomina() {
                           <TableHead className="text-right">Facturado</TableHead>
                           <TableHead className="text-right">%</TableHead>
                           <TableHead className="text-right">A pagar</TableHead>
+                          {/* Imprimir comprobante (todos) · Eliminar (solo staff) */}
+                          <TableHead className="w-10" />
                           {isStaff && <TableHead className="w-10" />}
                         </TableRow>
                       </TableHeader>
@@ -348,6 +368,21 @@ export default function Nomina() {
                               <TableCell className="text-right font-semibold text-primary">
                                 {formatCOP(l.total_pagar)}
                               </TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  disabled={imprimiendoId === l.id}
+                                  title="Imprimir el comprobante del trabajador"
+                                  onClick={() => void imprimirComprobante(l, emp.nombre)}
+                                >
+                                  {imprimiendoId === l.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <Printer className="h-4 w-4" />
+                                  )}
+                                </Button>
+                              </TableCell>
                               {isStaff && (
                                 <TableCell className="text-right">
                                   <EliminarLiquidacionButton
@@ -363,7 +398,7 @@ export default function Nomina() {
                                 className="hover:bg-transparent"
                               >
                                 <TableCell
-                                  colSpan={isStaff ? 7 : 6}
+                                  colSpan={isStaff ? 8 : 7}
                                   className="bg-muted/30 p-0"
                                 >
                                   <DetalleLiquidacion liquidacion={l} />

@@ -13,7 +13,7 @@ export interface ReciboItem {
 }
 
 /** Escapa texto para insertarlo de forma segura en el HTML del recibo. */
-function esc(valor: string | null | undefined): string {
+export function esc(valor: string | null | undefined): string {
   return String(valor ?? "").replace(
     /[&<>"']/g,
     (c) =>
@@ -25,6 +25,51 @@ function esc(valor: string | null | undefined): string {
 export function numeroRecibo(idOrOrden: string | Orden): string {
   const id = typeof idOrOrden === "string" ? idOrOrden : idOrOrden.id;
   return id.replace(/-/g, "").slice(-6).toUpperCase();
+}
+
+/**
+ * Envuelve un cuerpo en el documento completo de tirilla 80mm: estilos, datos
+ * del negocio arriba y pie abajo. Lo comparten todos los impresos (órdenes,
+ * ventas de inventario y comprobantes de nómina) para que salgan idénticos.
+ */
+export function documentoTirilla(titulo: string, cuerpo: string): string {
+  return `<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<title>${esc(titulo)}</title>
+<style>
+  @page { size: 80mm auto; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #fff; }
+  body { font-family: "Courier New", ui-monospace, monospace; color: #000; }
+  .recibo { width: 80mm; padding: 4mm 5mm; font-size: 12px; line-height: 1.35; }
+  .center { text-align: center; }
+  .bold { font-weight: 700; }
+  .big { font-size: 16px; letter-spacing: 1px; }
+  .small { font-size: 11px; }
+  .sep { border-top: 1px dashed #000; margin: 6px 0; }
+  .row { display: flex; justify-content: space-between; gap: 8px; }
+  .row .r { text-align: right; white-space: nowrap; }
+  table { width: 100%; border-collapse: collapse; }
+  td { font-size: 12px; vertical-align: top; padding: 1px 0; }
+  td.precio { text-align: right; white-space: nowrap; padding-left: 8px; }
+  .total { font-size: 14px; }
+  .firma { border-top: 1px solid #000; margin-top: 14mm; padding-top: 2px; }
+  /* Separa un bloque del siguiente (líneas agrupadas de a dos). */
+  td.pb { padding-bottom: 4px; }
+</style></head>
+<body>
+  <div class="recibo">
+    <div class="center bold big">${esc(NEGOCIO.nombre)}</div>
+    <div class="center">${esc(NEGOCIO.eslogan)}</div>
+    <div class="center small">NIT ${esc(NEGOCIO.nit)}</div>
+    <div class="center small">${esc(NEGOCIO.direccion)}</div>
+    <div class="center small">Tel ${esc(NEGOCIO.telefono)}</div>
+${cuerpo}
+    <div class="sep"></div>
+    <div class="center small">${esc(NEGOCIO.pie)}</div>
+    <div class="center small">${esc(NEGOCIO.nombre)} · ${esc(NEGOCIO.eslogan)}</div>
+  </div>
+</body></html>`;
 }
 
 /**
@@ -60,35 +105,9 @@ function construirHTML(opts: {
     ? `<div class="small">Salida: ${esc(horaSalida)}</div>`
     : "";
 
-  return `<!doctype html>
-<html lang="es"><head><meta charset="utf-8">
-<title>Recibo ${esc(numero)}</title>
-<style>
-  @page { size: 80mm auto; margin: 0; }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #fff; }
-  body { font-family: "Courier New", ui-monospace, monospace; color: #000; }
-  .recibo { width: 80mm; padding: 4mm 5mm; font-size: 12px; line-height: 1.35; }
-  .center { text-align: center; }
-  .bold { font-weight: 700; }
-  .big { font-size: 16px; letter-spacing: 1px; }
-  .small { font-size: 11px; }
-  .sep { border-top: 1px dashed #000; margin: 6px 0; }
-  .row { display: flex; justify-content: space-between; gap: 8px; }
-  .row .r { text-align: right; white-space: nowrap; }
-  table { width: 100%; border-collapse: collapse; }
-  td { font-size: 12px; vertical-align: top; padding: 1px 0; }
-  td.precio { text-align: right; white-space: nowrap; padding-left: 8px; }
-  .total { font-size: 14px; }
-</style></head>
-<body>
-  <div class="recibo">
-    <div class="center bold big">${esc(NEGOCIO.nombre)}</div>
-    <div class="center">${esc(NEGOCIO.eslogan)}</div>
-    <div class="center small">NIT ${esc(NEGOCIO.nit)}</div>
-    <div class="center small">${esc(NEGOCIO.direccion)}</div>
-    <div class="center small">Tel ${esc(NEGOCIO.telefono)}</div>
-
+  return documentoTirilla(
+    `Recibo ${numero}`,
+    `
     <div class="sep"></div>
     <div class="center bold">RECIBO DE VENTA</div>
     <div class="center small">N° ${esc(numero)}</div>
@@ -102,19 +121,15 @@ function construirHTML(opts: {
     <div class="sep"></div>
     <div class="row total bold"><span>TOTAL</span><span class="r">${formatCOP(total)}</span></div>
     ${lineaPago}
-
-    <div class="sep"></div>
-    <div class="center small">${esc(NEGOCIO.pie)}</div>
-    <div class="center small">${esc(NEGOCIO.nombre)} · ${esc(NEGOCIO.eslogan)}</div>
-  </div>
-</body></html>`;
+`,
+  );
 }
 
 /**
  * Imprime un HTML usando un iframe oculto (no abre ventanas emergentes ni
  * navega fuera de la app). Tras imprimir, limpia el iframe.
  */
-function imprimirHTML(html: string) {
+export function imprimirHTML(html: string) {
   const iframe = document.createElement("iframe");
   iframe.setAttribute("aria-hidden", "true");
   // Fuera de pantalla pero con ancho real (80mm) para medir bien el alto.
