@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CobrarOrdenDialog } from "@/components/CobrarOrdenDialog";
+import { ContactoCliente } from "@/components/ContactoCliente";
 import { EliminarOrdenButton } from "@/components/EliminarOrdenButton";
 import { formatCOP, formatFecha, formatFechaHora } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
@@ -351,6 +352,9 @@ export default function Ordenes() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap items-center justify-end gap-1">
+                          {/* Llamar / escribir por WhatsApp al dueño del carro,
+                              sin tener que salir a la ficha del cliente. */}
+                          <ContactoCliente orden={o} variante="iconos" />
                           <Button
                             variant="ghost"
                             size="sm"

@@ -8,8 +8,6 @@ import {
   DollarSign,
   ArrowRight,
   Loader2,
-  MessageCircle,
-  Phone,
   Printer,
   BellRing,
   StickyNote,
@@ -21,28 +19,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { formatCOP, formatFechaHora } from "@/lib/format";
-import { linkLlamada, linkWhatsApp } from "@/lib/contacto";
 import { supabase } from "@/lib/supabase";
 import { imprimirReciboDeOrden } from "@/lib/recibo-orden";
 import { CobrarOrdenDialog } from "@/components/CobrarOrdenDialog";
+import { ContactoCliente } from "@/components/ContactoCliente";
 import { NuevoMovimientoDialog } from "@/components/NuevoMovimientoDialog";
 import { EliminarOrdenButton } from "@/components/EliminarOrdenButton";
 import { AsignarEmpleadoButton } from "@/components/AsignarEmpleadoButton";
@@ -69,11 +51,19 @@ function inicioDeHoyISO() {
   return d.toISOString();
 }
 
+/** Momento (ms) del arranque del día de hoy, hora local. */
+function inicioDeHoyMs() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
 export default function Dashboard() {
   const queryClient = useQueryClient();
   useRealtimeOrdenes();
   const [cobrarDe, setCobrarDe] = useState<Orden | null>(null);
   const [imprimiendoId, setImprimiendoId] = useState<string | null>(null);
+  const [verAnteriores, setVerAnteriores] = useState(false);
 
   // Imprime el recibo: trae los ítems (servicio + empleado) y lanza la impresión.
   async function imprimirRecibo(orden: Orden) {
@@ -103,37 +93,23 @@ export default function Dashboard() {
     },
   });
 
-  // Momento del último cierre de nómina. El tablero "Vehículos en proceso" solo
-  // muestra órdenes creadas DESPUÉS de ese cierre: al liquidar nómina, el tablero
-  // se limpia solo (las órdenes NO se borran; siguen en Órdenes y en la caja).
-  const { data: ultimoCierreNomina = null } = useQuery({
-    queryKey: ["dashboard", "ultimo-cierre-nomina"],
-    queryFn: async (): Promise<string | null> => {
-      const { data, error } = await supabase
-        .from("nomina_liquidaciones")
-        .select("created_at")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return data?.created_at ?? null;
-    },
-  });
-
-  // Órdenes visibles en el tablero. El cierre de nómina limpia el tablero, PERO
-  // una orden SIN COBRAR nunca se oculta (si no, se perdería el cobro): solo se
-  // quitan las que ya están cobradas y son previas al último cierre.
-  const cierreMs = ultimoCierreNomina ? new Date(ultimoCierreNomina).getTime() : null;
-  const activasVisibles = useMemo(
-    () =>
-      cierreMs == null
-        ? activas
-        : activas.filter(
-            (o) =>
-              o.metodo_pago == null || new Date(o.created_at).getTime() > cierreMs,
-          ),
-    [activas, cierreMs],
-  );
+  // Qué se ve en el tablero. LIQUIDAR NÓMINA NO ESCONDE NADA: un vehículo que
+  // se pagó por adelantado sigue en el patio aunque ya se le haya liquidado al
+  // trabajador, así que tiene que seguir a la vista hasta que se entregue.
+  // El tablero se limpia solo por FECHA: arriba van las de hoy (más las sin
+  // cobrar de cualquier día, para no perder un cobro) y las de días anteriores
+  // que quedaron sin entregar se guardan en un desplegable, no se pierden.
+  const inicioHoy = inicioDeHoyMs();
+  const { activasVisibles, activasAnteriores } = useMemo(() => {
+    const deHoy: OrdenConEmpleado[] = [];
+    const anteriores: OrdenConEmpleado[] = [];
+    for (const o of activas) {
+      const esDeHoy = new Date(o.created_at).getTime() >= inicioHoy;
+      if (esDeHoy || o.metodo_pago == null) deHoy.push(o);
+      else anteriores.push(o);
+    }
+    return { activasVisibles: deHoy, activasAnteriores: anteriores };
+  }, [activas, inicioHoy]);
 
   // Órdenes de hoy (para KPIs).
   const { data: hoy = [] } = useQuery({
@@ -206,6 +182,130 @@ export default function Dashboard() {
         description: e instanceof Error ? e.message : "",
       }),
   });
+
+  // Tarjeta de un vehículo del tablero. Se usa para las de hoy y para las de
+  // días anteriores que quedaron sin entregar.
+  const tarjetaOrden = (o: OrdenConEmpleado) => (
+    <div key={o.id} className="flex flex-col rounded-lg border p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-lg font-bold tracking-wide">
+            {o.placa || "—"}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            {formatFechaHora(o.created_at)}
+          </p>
+          {o.cliente_nombre && (
+            <p className="mt-0.5 flex items-center gap-1 truncate text-xs font-medium">
+              <UserRound className="h-3 w-3 shrink-0 text-muted-foreground" />
+              {o.cliente_nombre}
+            </p>
+          )}
+          <p
+            className={cn(
+              "mt-0.5 text-xs font-medium",
+              o.empleado_nombre
+                ? "text-foreground"
+                : "italic text-muted-foreground",
+            )}
+          >
+            {o.empleado_nombre || "Sin empleado asignado"}
+          </p>
+          {o.observaciones && (
+            <p
+              className="mt-1 flex gap-1 text-xs text-amber-700"
+              title={o.observaciones}
+            >
+              <StickyNote className="mt-0.5 h-3 w-3 shrink-0" />
+              <span className="line-clamp-2">{o.observaciones}</span>
+            </p>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <Badge className={CLASE_ESTADO[o.estado]} variant="outline">
+            {LABEL_ESTADO[o.estado]}
+          </Badge>
+          {o.metodo_pago == null ? (
+            <Badge
+              variant="outline"
+              className="border-rose-200 bg-rose-50 text-rose-700"
+            >
+              Sin cobrar
+            </Badge>
+          ) : (
+            <Badge
+              variant="outline"
+              className="border-green-200 bg-green-50 text-green-700"
+            >
+              Pagado
+            </Badge>
+          )}
+        </div>
+      </div>
+      {/* Contacto del cliente: fila propia, separada de las acciones
+          de la orden (antes se mezclaban y los botones se partían). */}
+      <ContactoCliente orden={o} />
+
+      <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
+        <span className="font-semibold">{formatCOP(o.total)}</span>
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={imprimiendoId === o.id}
+            title="Imprimir recibo"
+            onClick={() => void imprimirRecibo(o)}
+          >
+            {imprimiendoId === o.id ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Printer className="h-3.5 w-3.5" />
+            )}
+            Recibo
+          </Button>
+          <AsignarEmpleadoButton
+            orden={o}
+            empleadoNombre={o.empleado_nombre}
+          />
+          {o.metodo_pago == null && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setCobrarDe(o)}
+            >
+              <DollarSign className="h-3.5 w-3.5" />
+              Cobrar
+            </Button>
+          )}
+          {SIGUIENTE_ESTADO[o.estado] && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={avanzarEstado.isPending || o.metodo_pago == null}
+              title={
+                o.metodo_pago == null
+                  ? "Cobra la orden antes de completarla"
+                  : undefined
+              }
+              onClick={() =>
+                avanzarEstado.mutate({ id: o.id, estado: o.estado })
+              }
+            >
+              {avanzarEstado.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <>
+                  {LABEL_ESTADO[SIGUIENTE_ESTADO[o.estado]!]}
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </>
+              )}
+            </Button>
+          )}
+          <EliminarOrdenButton orden={o} />
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -284,127 +384,32 @@ export default function Dashboard() {
             </p>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {activasVisibles.map((o) => (
-                <div key={o.id} className="flex flex-col rounded-lg border p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-lg font-bold tracking-wide">
-                        {o.placa || "—"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatFechaHora(o.created_at)}
-                      </p>
-                      {o.cliente_nombre && (
-                        <p className="mt-0.5 flex items-center gap-1 truncate text-xs font-medium">
-                          <UserRound className="h-3 w-3 shrink-0 text-muted-foreground" />
-                          {o.cliente_nombre}
-                        </p>
-                      )}
-                      <p
-                        className={cn(
-                          "mt-0.5 text-xs font-medium",
-                          o.empleado_nombre
-                            ? "text-foreground"
-                            : "italic text-muted-foreground",
-                        )}
-                      >
-                        {o.empleado_nombre || "Sin empleado asignado"}
-                      </p>
-                      {o.observaciones && (
-                        <p
-                          className="mt-1 flex gap-1 text-xs text-amber-700"
-                          title={o.observaciones}
-                        >
-                          <StickyNote className="mt-0.5 h-3 w-3 shrink-0" />
-                          <span className="line-clamp-2">{o.observaciones}</span>
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <Badge className={CLASE_ESTADO[o.estado]} variant="outline">
-                        {LABEL_ESTADO[o.estado]}
-                      </Badge>
-                      {o.metodo_pago == null ? (
-                        <Badge
-                          variant="outline"
-                          className="border-rose-200 bg-rose-50 text-rose-700"
-                        >
-                          Sin cobrar
-                        </Badge>
-                      ) : (
-                        <Badge
-                          variant="outline"
-                          className="border-green-200 bg-green-50 text-green-700"
-                        >
-                          Pagado
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                  {/* Contacto del cliente: fila propia, separada de las acciones
-                      de la orden (antes se mezclaban y los botones se partían). */}
-                  <ContactoCliente orden={o} />
+              {activasVisibles.map(tarjetaOrden)}
+            </div>
+          )}
 
-                  <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
-                    <span className="font-semibold">{formatCOP(o.total)}</span>
-                    <div className="flex flex-wrap items-center justify-end gap-1.5">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={imprimiendoId === o.id}
-                        title="Imprimir recibo"
-                        onClick={() => void imprimirRecibo(o)}
-                      >
-                        {imprimiendoId === o.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Printer className="h-3.5 w-3.5" />
-                        )}
-                        Recibo
-                      </Button>
-                      <AsignarEmpleadoButton
-                        orden={o}
-                        empleadoNombre={o.empleado_nombre}
-                      />
-                      {o.metodo_pago == null && (
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          onClick={() => setCobrarDe(o)}
-                        >
-                          <DollarSign className="h-3.5 w-3.5" />
-                          Cobrar
-                        </Button>
-                      )}
-                      {SIGUIENTE_ESTADO[o.estado] && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={avanzarEstado.isPending || o.metodo_pago == null}
-                          title={
-                            o.metodo_pago == null
-                              ? "Cobra la orden antes de completarla"
-                              : undefined
-                          }
-                          onClick={() =>
-                            avanzarEstado.mutate({ id: o.id, estado: o.estado })
-                          }
-                        >
-                          {avanzarEstado.isPending ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <>
-                              {LABEL_ESTADO[SIGUIENTE_ESTADO[o.estado]!]}
-                              <ArrowRight className="h-3.5 w-3.5" />
-                            </>
-                          )}
-                        </Button>
-                      )}
-                      <EliminarOrdenButton orden={o} />
-                    </div>
-                  </div>
+          {/* Las que quedaron sin entregar de días anteriores no se pierden:
+              se guardan aquí para no llenar el tablero del día. */}
+          {activasAnteriores.length > 0 && (
+            <div className="mt-4 border-t pt-4">
+              <button
+                type="button"
+                className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => setVerAnteriores((v) => !v)}
+              >
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 transition-transform",
+                    verAnteriores ? "" : "-rotate-90",
+                  )}
+                />
+                Sin entregar de días anteriores ({activasAnteriores.length})
+              </button>
+              {verAnteriores && (
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {activasAnteriores.map(tarjetaOrden)}
                 </div>
-              ))}
+              )}
             </div>
           )}
         </CardContent>
@@ -452,233 +457,6 @@ export default function Dashboard() {
         />
       )}
     </div>
-  );
-}
-
-/** Nombre comercial que ve el cliente en los mensajes. */
-const NEGOCIO = "TODO EN 1 AUTOMOTRIZ";
-
-/**
- * Mensajes listos para enviar por WhatsApp, el más probable de primero. El aviso
- * de "ya está listo" está SIEMPRE disponible, aunque la orden no se haya
- * cobrado: primero se avisa, después se cobra. El texto se puede editar en
- * WhatsApp antes de enviarlo.
- */
-function mensajesWhatsApp(o: OrdenConEmpleado) {
-  const saludo = o.cliente_nombre ? `Hola ${o.cliente_nombre}` : "Hola";
-  const vehiculo = o.placa ? ` (${o.placa})` : "";
-  const cabecera = `${saludo}, le escribimos de ${NEGOCIO}.`;
-
-  const listo = {
-    clave: "listo",
-    label: "Listo y pendiente de entrega",
-    texto: `${cabecera} Su vehículo${vehiculo} ya está listo. Puede pasar a recogerlo. Gracias.`,
-  };
-  const proceso = {
-    clave: "proceso",
-    label: "Va en proceso",
-    texto: `${cabecera} Su vehículo${vehiculo} está en proceso de lavado, le avisamos apenas esté listo.`,
-  };
-  const entregado = {
-    clave: "entregado",
-    label: "Entregado",
-    texto: `Para ${NEGOCIO} es muy importante atender bien a nuestros clientes y brindar el mejor servicio posible. ¡Vuelve pronto!`,
-  };
-
-  return o.estado === "entregado" ? [entregado, listo] : [listo, proceso, entregado];
-}
-
-/**
- * Llamar o escribir por WhatsApp al cliente de la orden. En las tarjetas van
- * como fila con etiqueta (`variante="fila"`); en listas apretadas, como iconos.
- */
-function ContactoCliente({
-  orden,
-  variante = "fila",
-}: {
-  orden: OrdenConEmpleado;
-  variante?: "fila" | "iconos";
-}) {
-  const [pidiendoTelefono, setPidiendoTelefono] = useState(false);
-  const tel = linkLlamada(orden.cliente_telefono);
-  const hayWhatsApp = linkWhatsApp(orden.cliente_telefono) != null;
-  const quien = orden.cliente_nombre ?? "el cliente";
-
-  // Sin teléfono no hay a quién escribirle: si la orden tiene cliente, se puede
-  // guardar el número aquí mismo; si no tiene, se explica por qué no hay botones.
-  if (!tel && !hayWhatsApp) {
-    if (!orden.cliente_id) {
-      return variante === "fila" ? (
-        <p className="mt-3 text-xs italic text-muted-foreground">
-          Orden sin cliente: no hay a quién escribirle.
-        </p>
-      ) : null;
-    }
-    return (
-      <>
-        <Button
-          size="sm"
-          variant={variante === "fila" ? "outline" : "ghost"}
-          className={variante === "fila" ? "mt-3 w-full" : undefined}
-          title={`Guardar el teléfono de ${quien}`}
-          onClick={() => setPidiendoTelefono(true)}
-        >
-          <Phone className="h-3.5 w-3.5" />
-          {variante === "fila" ? "Agregar teléfono" : ""}
-        </Button>
-        {pidiendoTelefono && (
-          <AgregarTelefonoDialog
-            clienteId={orden.cliente_id}
-            nombre={quien}
-            onClose={() => setPidiendoTelefono(false)}
-          />
-        )}
-      </>
-    );
-  }
-
-  // El menú deja elegir qué avisar: "ya está listo" está siempre, aunque la
-  // orden todavía no se haya cobrado.
-  const menuWhatsApp = (trigger: React.ReactNode) => (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72">
-        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-          Escribir a {quien}
-        </DropdownMenuLabel>
-        {mensajesWhatsApp(orden).map((m) => (
-          <DropdownMenuItem key={m.clave} asChild>
-            <a
-              href={linkWhatsApp(orden.cliente_telefono, m.texto) ?? undefined}
-              target="_blank"
-              rel="noreferrer"
-              className="flex flex-col items-start gap-0.5"
-            >
-              <span className="font-medium">{m.label}</span>
-              <span className="text-xs text-muted-foreground">{m.texto}</span>
-            </a>
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-
-  if (variante === "iconos") {
-    return (
-      <>
-        {tel && (
-          <Button asChild size="sm" variant="ghost" title={`Llamar a ${quien}`}>
-            <a href={tel}>
-              <Phone className="h-3.5 w-3.5" />
-            </a>
-          </Button>
-        )}
-        {hayWhatsApp &&
-          menuWhatsApp(
-            <Button
-              size="sm"
-              variant="ghost"
-              className="text-[#128C7E] hover:bg-emerald-50 hover:text-[#128C7E]"
-              title={`Escribir a ${quien} por WhatsApp`}
-            >
-              <MessageCircle className="h-3.5 w-3.5" />
-            </Button>,
-          )}
-      </>
-    );
-  }
-
-  return (
-    <div className="mt-3 flex gap-2">
-      {tel && (
-        <Button asChild size="sm" variant="outline" className="flex-1">
-          <a href={tel} title={`Llamar a ${quien}`}>
-            <Phone className="h-3.5 w-3.5" />
-            Llamar
-          </a>
-        </Button>
-      )}
-      {hayWhatsApp &&
-        menuWhatsApp(
-          <Button
-            size="sm"
-            className="flex-1 bg-[#25D366] text-white hover:bg-[#1DA851]"
-            title={`Escribir a ${quien} por WhatsApp`}
-          >
-            <MessageCircle className="h-3.5 w-3.5" />
-            WhatsApp
-            <ChevronDown className="h-3.5 w-3.5 opacity-80" />
-          </Button>,
-        )}
-    </div>
-  );
-}
-
-/** Guarda el teléfono del cliente de la orden para poder escribirle. */
-function AgregarTelefonoDialog({
-  clienteId,
-  nombre,
-  onClose,
-}: {
-  clienteId: string;
-  nombre: string;
-  onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const [telefono, setTelefono] = useState("");
-
-  const guardar = useMutation({
-    mutationFn: async () => {
-      const limpio = telefono.trim();
-      if (limpio.replace(/\D/g, "").length < 7) throw new Error("Teléfono incompleto");
-      const { error } = await supabase
-        .from("clientes")
-        .update({ telefono: limpio })
-        .eq("id", clienteId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Teléfono guardado", { description: `Ya puedes escribirle a ${nombre}` });
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["ordenes"] });
-      queryClient.invalidateQueries({ queryKey: ["clientes"] });
-      onClose();
-    },
-    onError: (e: unknown) =>
-      toast.error("No se pudo guardar", {
-        description: e instanceof Error ? e.message : "",
-      }),
-  });
-
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Teléfono de {nombre}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-2">
-          <Label htmlFor="tel-cliente">Celular</Label>
-          <Input
-            id="tel-cliente"
-            inputMode="tel"
-            placeholder="300 000 0000"
-            value={telefono}
-            autoFocus
-            onChange={(e) => setTelefono(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && guardar.mutate()}
-          />
-          <p className="text-xs text-muted-foreground">
-            Queda guardado en la ficha del cliente para las próximas visitas.
-          </p>
-        </div>
-        <DialogFooter>
-          <Button onClick={() => guardar.mutate()} disabled={guardar.isPending}>
-            {guardar.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Guardar
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }
 

@@ -58,6 +58,7 @@ import { METODOS_PAGO, LABEL_METODO_PAGO } from "@/lib/dominio";
 import { imprimirReciboVenta } from "@/lib/recibo";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/useAuth";
 import type {
   CajaMovimiento,
   CierreCaja,
@@ -100,6 +101,9 @@ function IconAction({
 
 export default function Inventario() {
   const queryClient = useQueryClient();
+  // La caja (movimientos y cierres) es solo del staff por RLS: al empleado se le
+  // oculta el recuadro para no mostrarle totales en $0 ni un botón muerto.
+  const { isStaff } = useAuth();
   const [editando, setEditando] = useState<Producto | null>(null);
   const [vendiendo, setVendiendo] = useState<Producto | null>(null);
   const [busquedaProd, setBusquedaProd] = useState("");
@@ -175,7 +179,7 @@ export default function Inventario() {
 
   return (
     <div className="space-y-6">
-      <CajaInventario />
+      {isStaff && <CajaInventario />}
 
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Productos</h2>
