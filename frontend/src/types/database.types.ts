@@ -12,6 +12,19 @@ export type TipoMovCaja = "ingreso" | "egreso";
 export type TipoMovInventario = "entrada" | "salida";
 export type CajaTipo = "principal" | "inventario";
 
+/** Lo que devuelve vender_productos: la venta recién hecha, lista para la tirilla. */
+export interface VentaRealizada {
+  grupo_id: string;
+  total: number;
+  metodo_pago: MetodoPago;
+  items: {
+    producto_nombre: string;
+    cantidad: number;
+    precio_unitario: number;
+    total: number;
+  }[];
+}
+
 export type Database = {
   public: {
     Tables: {
@@ -248,6 +261,8 @@ export type Database = {
           monto: number;
           fecha: string;
           metodo_pago: MetodoPago | null;
+          /** Egreso de caja de este gasto. null = no sale de la caja. */
+          caja_movimiento_id: string | null;
           created_by: string;
           created_at: string;
         };
@@ -258,6 +273,7 @@ export type Database = {
           monto: number;
           fecha?: string;
           metodo_pago?: MetodoPago | null;
+          caja_movimiento_id?: string | null;
           created_by?: string;
           created_at?: string;
         };
@@ -293,6 +309,8 @@ export type Database = {
           precio_unitario: number;
           total: number;
           metodo_pago: MetodoPago;
+          /** Agrupa las líneas de una misma venta (carrito). */
+          venta_grupo_id: string | null;
           created_by: string;
           created_at: string;
         };
@@ -304,6 +322,7 @@ export type Database = {
           precio_unitario: number;
           total: number;
           metodo_pago: MetodoPago;
+          venta_grupo_id?: string | null;
           created_by: string;
           created_at?: string;
         };
@@ -468,7 +487,29 @@ export type Database = {
       };
       vender_producto: {
         Args: { p_producto_id: string; p_cantidad: number; p_metodo_pago: MetodoPago };
-        Returns: { venta_id: string; total: number };
+        Returns: VentaRealizada;
+      };
+      vender_productos: {
+        /** p_items = [{ producto_id, cantidad }] — el precio lo pone el servidor. */
+        Args: { p_items: { producto_id: string; cantidad: number }[]; p_metodo_pago: MetodoPago };
+        Returns: VentaRealizada;
+      };
+      guardar_gasto_fijo: {
+        /** p_id null = gasto nuevo. p_afecta_caja crea/actualiza su egreso. */
+        Args: {
+          p_id: string | null;
+          p_categoria: string;
+          p_concepto: string | null;
+          p_monto: number;
+          p_fecha: string;
+          p_metodo_pago: MetodoPago | null;
+          p_afecta_caja?: boolean;
+        };
+        Returns: Database["public"]["Tables"]["gastos_fijos"]["Row"];
+      };
+      eliminar_gasto_fijo: {
+        Args: { p_id: string };
+        Returns: undefined;
       };
     };
     Enums: Record<string, never>;

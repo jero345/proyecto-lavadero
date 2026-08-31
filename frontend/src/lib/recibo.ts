@@ -5,7 +5,7 @@
 import { formatCOP, formatFechaHora } from "./format";
 import { LABEL_METODO_PAGO } from "./dominio";
 import { NEGOCIO } from "./negocio";
-import type { MetodoPago, Orden, VentaProducto } from "@/types/database.types";
+import type { MetodoPago, Orden } from "@/types/database.types";
 
 export interface ReciboItem {
   nombre: string;
@@ -205,22 +205,44 @@ export function imprimirReciboOrden(opts: {
   );
 }
 
-/** Genera e imprime el recibo de una venta de inventario (producto). */
-export function imprimirReciboVenta(venta: VentaProducto) {
-  const cantidad = Number(venta.cantidad);
-  const precioUnitario = Number(venta.precio_unitario);
-  const nombreItem =
-    cantidad > 1
-      ? `${venta.producto_nombre} (${cantidad} x ${formatCOP(precioUnitario)})`
-      : venta.producto_nombre;
+/** Una línea de la tirilla de venta de inventario. */
+export interface LineaVenta {
+  producto_nombre: string;
+  cantidad: number;
+  precio_unitario: number;
+  total: number;
+}
 
+/**
+ * Genera e imprime el recibo de una venta de inventario. Puede llevar VARIOS
+ * productos (carrito): una sola tirilla con todas las líneas y un total.
+ */
+export function imprimirReciboVenta(opts: {
+  /** Id de la venta o del grupo del carrito: de ahí sale el número de recibo. */
+  id: string;
+  fecha: string;
+  items: LineaVenta[];
+  total: number;
+  metodo: MetodoPago;
+}) {
   imprimirHTML(
     construirHTML({
-      numero: numeroRecibo(venta.id),
-      fecha: formatFechaHora(venta.created_at),
-      items: [{ nombre: nombreItem, precio: Number(venta.total) }],
-      total: Number(venta.total),
-      metodo: venta.metodo_pago,
+      numero: numeroRecibo(opts.id),
+      fecha: formatFechaHora(opts.fecha),
+      items: opts.items.map((it) => {
+        const cantidad = Number(it.cantidad);
+        const unitario = Number(it.precio_unitario);
+        return {
+          // Con más de una unidad se muestra "producto (3 x $7.000)".
+          nombre:
+            cantidad > 1
+              ? `${it.producto_nombre} (${cantidad} x ${formatCOP(unitario)})`
+              : it.producto_nombre,
+          precio: Number(it.total),
+        };
+      }),
+      total: opts.total,
+      metodo: opts.metodo,
     }),
   );
 }

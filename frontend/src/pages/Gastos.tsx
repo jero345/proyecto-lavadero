@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Table,
@@ -133,8 +134,9 @@ export default function Gastos() {
         <div>
           <h2 className="text-lg font-semibold">Gastos fijos</h2>
           <p className="text-xs text-muted-foreground">
-            Arriendo y pago de servicios. Es un registro aparte:{" "}
-            <strong>no afecta la caja</strong> ni los cierres.
+            Arriendo y pago de servicios. Cada pago decide si{" "}
+            <strong>sale de la caja</strong> (egreso de la caja principal, entra
+            al cierre del día) o si queda solo en este registro.
           </p>
         </div>
         <Button onClick={() => setEditando("nuevo")}>
@@ -243,7 +245,18 @@ export default function Gastos() {
                         </TableCell>
                         <TableCell>{g.concepto || "—"}</TableCell>
                         <TableCell className="text-muted-foreground">
-                          {g.metodo_pago ? LABEL_METODO_PAGO[g.metodo_pago] : "—"}
+                          <span className="flex items-center gap-2 whitespace-nowrap">
+                            {g.metodo_pago ? LABEL_METODO_PAGO[g.metodo_pago] : "—"}
+                            {/* Marca los que sí descontaron de la caja. */}
+                            {g.caja_movimiento_id && (
+                              <Badge
+                                variant="outline"
+                                className="border-rose-200 bg-rose-50 text-rose-700"
+                              >
+                                En caja
+                              </Badge>
+                            )}
+                          </span>
                         </TableCell>
                         <TableCell className="text-right font-medium text-destructive">
                           -{formatCOP(g.monto)}
@@ -297,29 +310,40 @@ function GastoDialog({
   const [fecha, setFecha] = useState(gasto?.fecha ?? hoyISO());
   // "" = sin especificar (la columna admite null).
   const [metodo, setMetodo] = useState<MetodoPago | "">(gasto?.metodo_pago ?? "");
+  // Un gasto sale de la caja cuando tiene su egreso atado. Los nuevos vienen
+  // marcados: lo normal es que el arriendo y los servicios se paguen del local.
+  const [afectaCaja, setAfectaCaja] = useState(
+    gasto ? gasto.caja_movimiento_id != null : true,
+  );
 
   const guardar = useMutation({
     mutationFn: async () => {
       const valor = Number(monto);
       if (!Number.isFinite(valor) || valor <= 0) throw new Error("Monto inválido");
       if (!fecha) throw new Error("La fecha es obligatoria");
+      if (afectaCaja && metodo === "") {
+        throw new Error("Elige el método de pago para descontarlo de la caja");
+      }
 
-      const datos = {
-        categoria: cat,
-        concepto: concepto.trim() || null,
-        monto: valor,
-        fecha,
-        metodo_pago: metodo === "" ? null : metodo,
-      };
-
-      const { error } = gasto
-        ? await supabase.from("gastos_fijos").update(datos).eq("id", gasto.id)
-        : await supabase.from("gastos_fijos").insert(datos);
+      // El servidor crea, actualiza o borra el egreso de caja según corresponda.
+      const { error } = await supabase.rpc("guardar_gasto_fijo", {
+        p_id: gasto?.id ?? null,
+        p_categoria: cat,
+        p_concepto: concepto.trim() || null,
+        p_monto: valor,
+        p_fecha: fecha,
+        p_metodo_pago: metodo === "" ? null : metodo,
+        p_afecta_caja: afectaCaja,
+      });
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success(gasto ? "Gasto actualizado" : "Gasto registrado");
+      toast.success(gasto ? "Gasto actualizado" : "Gasto registrado", {
+        description: afectaCaja ? "Descontado de la caja principal" : undefined,
+      });
       queryClient.invalidateQueries({ queryKey: ["gastos"] });
+      queryClient.invalidateQueries({ queryKey: ["caja"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       onClose();
     },
     onError: (e: unknown) =>
@@ -385,7 +409,7 @@ function GastoDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>Método de pago (opcional)</Label>
+            <Label>Método de pago{afectaCaja ? "" : " (opcional)"}</Label>
             <Select
               value={metodo === "" ? "ninguno" : metodo}
               onValueChange={(v) => setMetodo(v === "ninguno" ? "" : (v as MetodoPago))}
@@ -402,10 +426,26 @@ function GastoDialog({
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">
-              Este pago no sale de la caja: queda solo en este registro de gastos.
-            </p>
           </div>
+
+          {/* Con esto marcado, el pago sale de la caja principal como egreso y
+              entra en el cierre del día (control del arriendo y los servicios). */}
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 accent-primary"
+              checked={afectaCaja}
+              onChange={(e) => setAfectaCaja(e.target.checked)}
+            />
+            <span className="text-sm">
+              <span className="font-medium">Descontar de la caja</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {afectaCaja
+                  ? "Se registra un egreso en la caja principal con la fecha del pago; cuenta en el cierre de ese día."
+                  : "Queda solo en este registro de gastos (por ejemplo, si se paga desde el banco)."}
+              </span>
+            </span>
+          </label>
         </div>
         <DialogFooter>
           <Button onClick={() => guardar.mutate()} disabled={guardar.isPending}>
@@ -424,12 +464,15 @@ function EliminarGastoButton({ gasto }: { gasto: GastoFijo }) {
 
   const eliminar = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from("gastos_fijos").delete().eq("id", gasto.id);
+      // El servidor borra también su egreso de caja (si no está cerrado).
+      const { error } = await supabase.rpc("eliminar_gasto_fijo", { p_id: gasto.id });
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Gasto eliminado");
       queryClient.invalidateQueries({ queryKey: ["gastos"] });
+      queryClient.invalidateQueries({ queryKey: ["caja"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
       setOpen(false);
     },
     onError: (e: unknown) =>

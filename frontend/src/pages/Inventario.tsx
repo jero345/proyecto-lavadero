@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Loader2,
   Lock,
+  Minus,
   PackageMinus,
   PackagePlus,
   Plus,
@@ -11,6 +12,8 @@ import {
   Search,
   ShoppingCart,
   SquarePen,
+  Trash2,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -66,7 +69,24 @@ import type {
   Producto,
   TipoMovInventario,
   VentaProducto,
+  VentaRealizada,
 } from "@/types/database.types";
+
+/** Una línea del carrito: qué producto y cuántas unidades. */
+interface ItemCarrito {
+  producto: Producto;
+  cantidad: number;
+}
+
+/** Una venta del historial con todas sus líneas (los productos del carrito). */
+interface VentaAgrupada {
+  /** venta_grupo_id (o el id de la línea, en las ventas viejas). */
+  id: string;
+  fecha: string;
+  metodo: MetodoPago;
+  total: number;
+  lineas: VentaProducto[];
+}
 
 /** Botón de icono redondo con hover suave — para las acciones de cada fila. */
 function IconAction({
@@ -105,7 +125,8 @@ export default function Inventario() {
   // oculta el recuadro para no mostrarle totales en $0 ni un botón muerto.
   const { isStaff } = useAuth();
   const [editando, setEditando] = useState<Producto | null>(null);
-  const [vendiendo, setVendiendo] = useState<Producto | null>(null);
+  // Carrito: se venden varios productos juntos y sale una sola factura.
+  const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
   const [busquedaProd, setBusquedaProd] = useState("");
   const [busquedaVenta, setBusquedaVenta] = useState("");
 
@@ -125,7 +146,9 @@ export default function Inventario() {
         .from("ventas_productos")
         .select("*")
         .order("created_at", { ascending: false })
-        .limit(20);
+        // Se piden de a muchas líneas porque una venta puede traer varios
+        // productos; después se agrupan por venta.
+        .limit(120);
       if (error) throw error;
       return data;
     },
@@ -136,16 +159,59 @@ export default function Inventario() {
     queryClient.invalidateQueries({ queryKey: ["caja"] });
   };
 
+  // Agregar al carrito: si el producto ya está, suma una unidad (sin pasarse
+  // del stock disponible).
+  function agregarAlCarrito(producto: Producto) {
+    const stock = Number(producto.stock_actual) || 0;
+    setCarrito((prev) => {
+      const actual = prev.find((it) => it.producto.id === producto.id);
+      if (!actual) return [...prev, { producto, cantidad: 1 }];
+      if (actual.cantidad >= stock) {
+        toast.warning(`Solo hay ${stock} de ${producto.nombre}`);
+        return prev;
+      }
+      return prev.map((it) =>
+        it.producto.id === producto.id ? { ...it, cantidad: it.cantidad + 1 } : it,
+      );
+    });
+  }
+
   const productosFiltrados = useMemo(() => {
     const q = busquedaProd.trim().toLowerCase();
     if (!q) return productos;
     return productos.filter((p) => p.nombre.toLowerCase().includes(q));
   }, [productos, busquedaProd]);
 
-  const ventasFiltradas = useMemo(() => {
+  // Las líneas de una misma venta (carrito) se muestran juntas: una fila por
+  // venta, con todos sus productos y un solo total. Las ventas viejas, de un
+  // solo producto, quedan como grupos de una línea.
+  const ventasAgrupadas = useMemo(() => {
+    const grupos = new Map<string, VentaAgrupada>();
+    for (const v of ventas) {
+      const clave = v.venta_grupo_id ?? v.id;
+      const grupo = grupos.get(clave);
+      if (grupo) {
+        grupo.lineas.push(v);
+        grupo.total += Number(v.total);
+      } else {
+        grupos.set(clave, {
+          id: clave,
+          fecha: v.created_at,
+          metodo: v.metodo_pago,
+          total: Number(v.total),
+          lineas: [v],
+        });
+      }
+    }
     const q = busquedaVenta.trim().toLowerCase();
-    if (!q) return ventas;
-    return ventas.filter((v) => v.producto_nombre.toLowerCase().includes(q));
+    const lista = [...grupos.values()];
+    return (
+      q
+        ? lista.filter((g) =>
+            g.lineas.some((l) => l.producto_nombre.toLowerCase().includes(q)),
+          )
+        : lista
+    ).slice(0, 25);
   }, [ventas, busquedaVenta]);
 
   // Registra el movimiento y ajusta el stock de forma atómica (RPC en el servidor).
@@ -180,6 +246,14 @@ export default function Inventario() {
   return (
     <div className="space-y-6">
       {isStaff && <CajaInventario />}
+
+      {carrito.length > 0 && (
+        <CarritoVenta
+          carrito={carrito}
+          setCarrito={setCarrito}
+          onVendido={invalidar}
+        />
+      )}
 
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Productos</h2>
@@ -258,13 +332,15 @@ export default function Inventario() {
                             title={
                               sinPrecio
                                 ? "Define un precio para poder vender"
-                                : "Vender producto"
+                                : stock <= 0
+                                  ? "Sin stock"
+                                  : "Agregar al carrito"
                             }
                             disabled={sinPrecio || stock <= 0}
-                            onClick={() => setVendiendo(p)}
+                            onClick={() => agregarAlCarrito(p)}
                           >
                             <ShoppingCart className="h-4 w-4" />
-                            Vender
+                            Agregar
                           </Button>
 
                           <div className="mx-1 h-6 w-px bg-border" />
@@ -328,7 +404,7 @@ export default function Inventario() {
             <p className="py-8 text-center text-sm text-muted-foreground">
               Aún no hay ventas registradas.
             </p>
-          ) : ventasFiltradas.length === 0 ? (
+          ) : ventasAgrupadas.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               Ninguna venta coincide con «{busquedaVenta}».
             </p>
@@ -337,7 +413,7 @@ export default function Inventario() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Fecha</TableHead>
-                  <TableHead>Producto</TableHead>
+                  <TableHead>Productos</TableHead>
                   <TableHead className="text-right">Cantidad</TableHead>
                   <TableHead>Método</TableHead>
                   <TableHead className="text-right">Total</TableHead>
@@ -345,14 +421,28 @@ export default function Inventario() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {ventasFiltradas.map((v) => (
+                {ventasAgrupadas.map((v) => (
                   <TableRow key={v.id}>
                     <TableCell className="whitespace-nowrap text-muted-foreground">
-                      {formatFechaHora(v.created_at)}
+                      {formatFechaHora(v.fecha)}
                     </TableCell>
-                    <TableCell className="font-medium">{v.producto_nombre}</TableCell>
-                    <TableCell className="text-right">{v.cantidad}</TableCell>
-                    <TableCell>{LABEL_METODO_PAGO[v.metodo_pago]}</TableCell>
+                    <TableCell className="font-medium">
+                      {v.lineas.map((l) => (
+                        <span key={l.id} className="block">
+                          {l.producto_nombre}
+                          {Number(l.cantidad) > 1 && (
+                            <span className="font-normal text-muted-foreground">
+                              {" "}
+                              x{l.cantidad}
+                            </span>
+                          )}
+                        </span>
+                      ))}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {v.lineas.reduce((acc, l) => acc + Number(l.cantidad), 0)}
+                    </TableCell>
+                    <TableCell>{LABEL_METODO_PAGO[v.metodo]}</TableCell>
                     <TableCell className="text-right font-semibold">
                       {formatCOP(v.total)}
                     </TableCell>
@@ -361,7 +451,15 @@ export default function Inventario() {
                         variant="ghost"
                         size="sm"
                         title="Imprimir recibo"
-                        onClick={() => imprimirReciboVenta(v)}
+                        onClick={() =>
+                          imprimirReciboVenta({
+                            id: v.id,
+                            fecha: v.fecha,
+                            items: v.lineas,
+                            total: v.total,
+                            metodo: v.metodo,
+                          })
+                        }
                       >
                         <Printer className="h-3.5 w-3.5" />
                       </Button>
@@ -383,19 +481,6 @@ export default function Inventario() {
             onGuardado={() => {
               invalidar();
               setEditando(null);
-            }}
-          />
-        )}
-      </Dialog>
-
-      <Dialog open={Boolean(vendiendo)} onOpenChange={(o) => !o && setVendiendo(null)}>
-        {vendiendo && (
-          <VenderProducto
-            key={vendiendo.id}
-            producto={vendiendo}
-            onVendido={() => {
-              invalidar();
-              setVendiendo(null);
             }}
           />
         )}
@@ -601,36 +686,59 @@ function EditarProducto({
   );
 }
 
-function VenderProducto({
-  producto,
+/**
+ * Carrito de venta: se agregan varios productos, se cobra una sola vez y sale
+ * una sola factura con todas las líneas. El servidor (vender_productos) pone
+ * los precios, descuenta el stock de cada producto y mete UN ingreso a la caja
+ * de inventario por el total.
+ */
+function CarritoVenta({
+  carrito,
+  setCarrito,
   onVendido,
 }: {
-  producto: Producto;
+  carrito: ItemCarrito[];
+  setCarrito: React.Dispatch<React.SetStateAction<ItemCarrito[]>>;
   onVendido: () => void;
 }) {
-  const [cantidad, setCantidad] = useState("1");
   const [metodo, setMetodo] = useState<MetodoPago | "">("");
 
-  const precio = Number(producto.precio) || 0;
-  const stock = Number(producto.stock_actual) || 0;
-  const cant = Number(cantidad);
-  const total = (Number.isFinite(cant) && cant > 0 ? cant : 0) * precio;
+  const total = carrito.reduce(
+    (acc, it) => acc + (Number(it.producto.precio) || 0) * it.cantidad,
+    0,
+  );
+  const unidades = carrito.reduce((acc, it) => acc + it.cantidad, 0);
+
+  function cambiarCantidad(id: string, cantidad: number) {
+    setCarrito((prev) =>
+      prev.map((it) => (it.producto.id === id ? { ...it, cantidad } : it)),
+    );
+  }
+  function quitar(id: string) {
+    setCarrito((prev) => prev.filter((it) => it.producto.id !== id));
+  }
 
   const vender = useMutation({
-    mutationFn: async () => {
-      if (!Number.isFinite(cant) || cant <= 0) throw new Error("Cantidad inválida");
-      if (cant > stock) throw new Error("No hay suficiente stock");
+    mutationFn: async (): Promise<VentaRealizada> => {
+      if (carrito.length === 0) throw new Error("El carrito está vacío");
       if (!metodo) throw new Error("Selecciona el método de pago");
-      const { error } = await supabase.rpc("vender_producto", {
-        p_producto_id: producto.id,
-        p_cantidad: cant,
+      for (const it of carrito) {
+        if (!Number.isFinite(it.cantidad) || it.cantidad <= 0) {
+          throw new Error(`Cantidad inválida en ${it.producto.nombre}`);
+        }
+        if (it.cantidad > (Number(it.producto.stock_actual) || 0)) {
+          throw new Error(`No hay suficiente stock de ${it.producto.nombre}`);
+        }
+      }
+      const { data, error } = await supabase.rpc("vender_productos", {
+        p_items: carrito.map((it) => ({
+          producto_id: it.producto.id,
+          cantidad: it.cantidad,
+        })),
         p_metodo_pago: metodo,
       });
       if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Venta registrada", { description: `Total ${formatCOP(total)}` });
-      onVendido();
+      return data as VentaRealizada;
     },
     onError: (e: unknown) =>
       toast.error("No se pudo vender", {
@@ -638,54 +746,148 @@ function VenderProducto({
       }),
   });
 
+  // `imprimir` decide si además de cobrar sale la tirilla con todos los ítems.
+  function cobrar(imprimir: boolean) {
+    vender.mutate(undefined, {
+      onSuccess: (venta) => {
+        toast.success("Venta registrada", {
+          description: `Total ${formatCOP(Number(venta.total))}`,
+        });
+        if (imprimir) {
+          imprimirReciboVenta({
+            id: venta.grupo_id,
+            fecha: new Date().toISOString(),
+            items: venta.items,
+            total: Number(venta.total),
+            metodo: venta.metodo_pago,
+          });
+        }
+        setCarrito([]);
+        setMetodo("");
+        onVendido();
+      },
+    });
+  }
+
   return (
-    <DialogContent>
-      <DialogHeader>
-        <DialogTitle>Vender {producto.nombre}</DialogTitle>
-      </DialogHeader>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>Precio unitario: {formatCOP(precio)}</span>
-          <span>Stock: {stock}</span>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="vp-cant">Cantidad</Label>
-          <Input
-            id="vp-cant"
-            type="number"
-            min={1}
-            value={cantidad}
-            onChange={(e) => setCantidad(e.target.value)}
-            autoFocus
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>Método de pago</Label>
-          <Select value={metodo} onValueChange={(v) => setMetodo(v as MetodoPago)}>
-            <SelectTrigger>
-              <SelectValue placeholder="Selecciona método" />
-            </SelectTrigger>
-            <SelectContent>
-              {METODOS_PAGO.map((m) => (
-                <SelectItem key={m.value} value={m.value}>
-                  {m.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-center justify-between rounded-md bg-muted p-3">
-          <span className="text-sm text-muted-foreground">Total</span>
-          <span className="text-xl font-bold">{formatCOP(total)}</span>
-        </div>
-      </div>
-      <DialogFooter>
-        <Button onClick={() => vender.mutate()} disabled={vender.isPending}>
-          {vender.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-          Confirmar venta
+    <Card className="border-primary/40">
+      <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <ShoppingCart className="h-4 w-4 text-primary" />
+          Venta en curso
+          <span className="text-sm font-normal text-muted-foreground">
+            · {carrito.length} producto{carrito.length === 1 ? "" : "s"} · {unidades}{" "}
+            unidad{unidades === 1 ? "" : "es"}
+          </span>
+        </CardTitle>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground"
+          disabled={vender.isPending}
+          onClick={() => setCarrito([])}
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Vaciar
         </Button>
-      </DialogFooter>
-    </DialogContent>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="divide-y rounded-lg border">
+          {carrito.map((it) => {
+            const precio = Number(it.producto.precio) || 0;
+            const stock = Number(it.producto.stock_actual) || 0;
+            return (
+              <div key={it.producto.id} className="flex flex-wrap items-center gap-3 p-3">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{it.producto.nombre}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatCOP(precio)} c/u · stock {stock}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1">
+                  <IconAction
+                    title="Quitar una unidad"
+                    className="text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                    disabled={it.cantidad <= 1}
+                    onClick={() => cambiarCantidad(it.producto.id, it.cantidad - 1)}
+                  >
+                    <Minus className="h-4 w-4" />
+                  </IconAction>
+                  <Input
+                    className="h-9 w-16 text-center"
+                    type="number"
+                    min={1}
+                    max={stock}
+                    value={it.cantidad}
+                    onChange={(e) =>
+                      cambiarCantidad(it.producto.id, Number(e.target.value))
+                    }
+                  />
+                  <IconAction
+                    title="Agregar una unidad"
+                    className="text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                    disabled={it.cantidad >= stock}
+                    onClick={() => cambiarCantidad(it.producto.id, it.cantidad + 1)}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </IconAction>
+                </div>
+                <span className="w-24 text-right font-semibold">
+                  {formatCOP(precio * it.cantidad)}
+                </span>
+                <IconAction
+                  title="Quitar del carrito"
+                  className="text-rose-600 hover:bg-rose-100 hover:text-rose-700"
+                  onClick={() => quitar(it.producto.id)}
+                >
+                  <X className="h-4 w-4" />
+                </IconAction>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="space-y-2">
+            <Label>Método de pago</Label>
+            <Select value={metodo} onValueChange={(v) => setMetodo(v as MetodoPago)}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Selecciona método" />
+              </SelectTrigger>
+              <SelectContent>
+                {METODOS_PAGO.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-muted-foreground">Total de la venta</p>
+            <p className="text-2xl font-bold">{formatCOP(total)}</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button
+            variant="outline"
+            disabled={vender.isPending}
+            onClick={() => cobrar(false)}
+          >
+            Solo cobrar
+          </Button>
+          <Button disabled={vender.isPending} onClick={() => cobrar(true)}>
+            {vender.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Printer className="h-4 w-4" />
+            )}
+            Cobrar e imprimir
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
