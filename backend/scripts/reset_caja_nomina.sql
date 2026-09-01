@@ -21,12 +21,11 @@
 
 begin;
 
--- caja_movimientos referencia a cierres_caja (cierre_id): van en el mismo
--- TRUNCATE para respetar la FK. nomina_liquidaciones es independiente.
-truncate table
-  public.caja_movimientos,
-  public.cierres_caja,
-  public.nomina_liquidaciones
-restart identity;
+-- Se borra con DELETE y no con TRUNCATE porque gastos_fijos apunta a
+-- caja_movimientos: así los gastos se conservan (los que salían de la caja
+-- quedan como "no afecta la caja", su egreso se fue con el resto).
+delete from public.caja_movimientos;
+delete from public.cierres_caja;
+delete from public.nomina_liquidaciones;
 
 commit;

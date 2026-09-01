@@ -94,3 +94,80 @@ export async function imprimirComprobanteNomina(
     ),
   );
 }
+
+/**
+ * REPORTE del trabajo de un periodo: qué hizo el trabajador entre dos fechas y
+ * cuánto le correspondería. NO es un comprobante de pago (no hay liquidación
+ * detrás), por eso lo dice en la tirilla y no lleva línea de firma.
+ */
+export async function imprimirReporteNomina(opts: {
+  empleadoId: string;
+  nombre: string;
+  inicio: string;
+  fin: string;
+  porcentaje: number;
+}) {
+  const { data, error } = await supabase.rpc("detalle_nomina", {
+    p_empleado_id: opts.empleadoId,
+    p_fecha_inicio: opts.inicio,
+    p_fecha_fin: opts.fin,
+  });
+  if (error) throw error;
+
+  const ordenes = data ?? [];
+  const facturado = ordenes.reduce((acc, o) => acc + Number(o.total), 0);
+  const corresponde = Math.round((facturado * opts.porcentaje) / 100);
+
+  // Dos líneas por orden: placa + fecha arriba, servicios + total abajo.
+  const filas = ordenes
+    .map(
+      (o) => `<tr>
+        <td class="bold">${esc(o.placa || "—")}</td>
+        <td class="precio small">${esc(formatFechaHora(o.fecha))}</td>
+      </tr>
+      <tr>
+        <td class="small pb">${esc(o.servicios || "—")}</td>
+        <td class="precio pb">${formatCOP(Number(o.total))}</td>
+      </tr>`,
+    )
+    .join("");
+
+  const cuerpoOrdenes =
+    ordenes.length > 0
+      ? `<table>${filas}</table>`
+      : `<div class="small center">Sin órdenes registradas en el periodo.</div>`;
+
+  const periodo =
+    opts.inicio === opts.fin
+      ? formatFecha(opts.inicio)
+      : `${formatFecha(opts.inicio)} – ${formatFecha(opts.fin)}`;
+
+  imprimirHTML(
+    documentoTirilla(
+      `Reporte ${opts.nombre}`,
+      `
+    <div class="sep"></div>
+    <div class="center bold">REPORTE DE TRABAJO</div>
+    <div class="center small">Informativo · no es comprobante de pago</div>
+
+    <div class="sep"></div>
+    <div class="row"><span>Trabajador</span><span class="r bold">${esc(opts.nombre)}</span></div>
+    <div class="row"><span>Periodo</span><span class="r">${esc(periodo)}</span></div>
+    <div class="row"><span>Emitido</span><span class="r">${esc(formatFechaHora(new Date().toISOString()))}</span></div>
+
+    <div class="sep"></div>
+    <div class="bold">ORDENES DEL PERIODO</div>
+    <div class="small">Valores = total de cada orden</div>
+    ${cuerpoOrdenes}
+
+    <div class="sep"></div>
+    <div class="row"><span>Ordenes atendidas</span><span class="r">${ordenes.length}</span></div>
+    <div class="row"><span>Facturado</span><span class="r">${formatCOP(facturado)}</span></div>
+    <div class="row"><span>Comision</span><span class="r">${opts.porcentaje}%</span></div>
+
+    <div class="sep"></div>
+    <div class="row total bold"><span>LE CORRESPONDE</span><span class="r">${formatCOP(corresponde)}</span></div>
+`,
+    ),
+  );
+}

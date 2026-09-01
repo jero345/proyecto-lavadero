@@ -83,7 +83,7 @@ export default function Cierres() {
 
   // Totales acumulados de los cierres que se están viendo.
   const totales = useMemo(() => {
-    const t = { efectivo: 0, qr: 0, transferencia: 0, ingresos: 0, egresos: 0, nomina: 0, general: 0 };
+    const t = { efectivo: 0, qr: 0, transferencia: 0, ingresos: 0, egresos: 0, nomina: 0, gastos: 0, general: 0 };
     for (const c of filtrados) {
       t.efectivo += Number(c.total_efectivo);
       t.qr += Number(c.total_qr);
@@ -91,6 +91,7 @@ export default function Cierres() {
       t.ingresos += ingresosCierre(c);
       t.egresos += Number(c.total_egresos);
       t.nomina += Number(c.total_nomina);
+      t.gastos += Number(c.total_gastos);
       t.general += Number(c.total_general);
     }
     return t;
@@ -109,7 +110,7 @@ export default function Cierres() {
       </div>
 
       {/* Acumulado de los cierres visibles */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <TotalTile titulo="Cierres" texto={String(filtrados.length)} />
         <TotalTile
           titulo="Total de los ingresos"
@@ -124,6 +125,11 @@ export default function Cierres() {
         <TotalTile
           titulo="Nómina"
           texto={`${totales.nomina > 0 ? "-" : ""}${formatCOP(totales.nomina)}`}
+          className="text-destructive"
+        />
+        <TotalTile
+          titulo="Gastos fijos"
+          texto={`${totales.gastos > 0 ? "-" : ""}${formatCOP(totales.gastos)}`}
           className="text-destructive"
         />
         <TotalTile
@@ -212,6 +218,9 @@ export default function Cierres() {
                     </TableHead>
                     <TableHead className="text-right">Egresos</TableHead>
                     <TableHead className="text-right">Nómina</TableHead>
+                    <TableHead className="whitespace-nowrap text-right">
+                      Gastos fijos
+                    </TableHead>
                     <TableHead className="text-right">General</TableHead>
                     <TableHead className="text-right">Detalle</TableHead>
                   </TableRow>
@@ -240,6 +249,10 @@ export default function Cierres() {
                       <TableCell className="text-right text-destructive">
                         {c.total_nomina > 0 ? "-" : ""}
                         {formatCOP(c.total_nomina)}
+                      </TableCell>
+                      <TableCell className="text-right text-destructive">
+                        {c.total_gastos > 0 ? "-" : ""}
+                        {formatCOP(c.total_gastos)}
                       </TableCell>
                       <TableCell
                         className={`text-right font-semibold ${
@@ -307,6 +320,10 @@ export default function Cierres() {
                       {totales.nomina > 0 ? "-" : ""}
                       {formatCOP(totales.nomina)}
                     </TableCell>
+                    <TableCell className="text-right text-destructive">
+                      {totales.gastos > 0 ? "-" : ""}
+                      {formatCOP(totales.gastos)}
+                    </TableCell>
                     <TableCell
                       className={`text-right ${totales.general < 0 ? "text-destructive" : ""}`}
                     >
@@ -356,7 +373,10 @@ function EditarTotalDialog({
 
   // El total que sale de los movimientos del cierre (por si quiere volver a él).
   const calculado =
-    ingresosCierre(cierre) - Number(cierre.total_egresos) - Number(cierre.total_nomina);
+    ingresosCierre(cierre) -
+    Number(cierre.total_egresos) -
+    Number(cierre.total_nomina) -
+    Number(cierre.total_gastos);
 
   const guardar = useMutation({
     // total null = quitar el ajuste y volver al calculado.

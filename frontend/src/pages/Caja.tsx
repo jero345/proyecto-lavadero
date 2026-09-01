@@ -66,6 +66,19 @@ export default function Caja() {
     },
   });
 
+  // Los gastos fijos (arriendo, servicios) NO son plata del cajón del día: se
+  // registran en la caja para que el cierre los descuente, pero acá quedan
+  // fuera del total del turno. Se avisan aparte, abajo.
+  const esGastoFijo = (m: CajaMovimiento) =>
+    (m.concepto ?? "").startsWith("Gasto fijo:");
+
+  const movimientos = useMemo(() => abiertos.filter((m) => !esGastoFijo(m)), [abiertos]);
+  const gastosFijos = useMemo(() => abiertos.filter(esGastoFijo), [abiertos]);
+  const totalGastosFijos = useMemo(
+    () => gastosFijos.reduce((acc, m) => acc + Number(m.monto), 0),
+    [gastosFijos],
+  );
+
   const totales = useMemo(() => {
     const t = {
       efectivo: 0,
@@ -76,7 +89,7 @@ export default function Caja() {
       nomina: 0,
       general: 0,
     };
-    for (const m of abiertos) {
+    for (const m of movimientos) {
       const monto = Number(m.monto);
       if (m.tipo === "egreso") {
         // Los egresos de nómina llevan el concepto "Nómina: …" (los genera
@@ -88,10 +101,10 @@ export default function Caja() {
         if (m.metodo_pago) t[m.metodo_pago] += monto;
       }
     }
-    // Total real de la caja: todo lo que entró menos todo lo que salió.
+    // Total del día: todo lo que entró menos lo que salió del cajón.
     t.general = t.ingresos - t.egresos - t.nomina;
     return t;
-  }, [abiertos]);
+  }, [movimientos]);
 
   const cerrarCaja = useMutation({
     mutationFn: async () => {
@@ -133,6 +146,20 @@ export default function Caja() {
         los ingresos − Egresos − Nómina
       </p>
 
+      {/* Los gastos fijos no bajan el total del día, pero sí el del cierre. */}
+      {totalGastosFijos > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <span>
+            <strong>{formatCOP(totalGastosFijos)}</strong> en gastos fijos (
+            {gastosFijos.length} pago{gastosFijos.length === 1 ? "" : "s"}) no se
+            restan del total del día: se descuentan al cerrar la caja.
+          </span>
+          <Link to="/gastos" className="font-medium underline underline-offset-2">
+            Ver gastos fijos
+          </Link>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">Movimientos sin cerrar</h2>
         <div className="flex gap-2">
@@ -153,8 +180,16 @@ export default function Caja() {
                 <AlertDialogTitle>¿Cerrar la caja?</AlertDialogTitle>
                 <AlertDialogDescription>
                   Se consolidarán {abiertos.length} movimiento(s) con un total de{" "}
-                  <strong>{formatCOP(totales.general)}</strong>. Esta acción no se
-                  puede deshacer.
+                  <strong>{formatCOP(totales.general)}</strong>.
+                  {totalGastosFijos > 0 && (
+                    <>
+                      {" "}
+                      Además se descuentan {formatCOP(totalGastosFijos)} de gastos
+                      fijos, así que el cierre queda en{" "}
+                      <strong>{formatCOP(totales.general - totalGastosFijos)}</strong>.
+                    </>
+                  )}{" "}
+                  Esta acción no se puede deshacer.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -170,7 +205,7 @@ export default function Caja() {
 
       <Card>
         <CardContent className="p-0">
-          {abiertos.length === 0 ? (
+          {movimientos.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
               No hay movimientos sin cerrar.
             </p>
@@ -186,7 +221,7 @@ export default function Caja() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {abiertos.map((m) => (
+                {movimientos.map((m) => (
                   <TableRow key={m.id}>
                     <TableCell className="whitespace-nowrap text-muted-foreground">
                       {formatFechaHora(m.created_at)}

@@ -4,10 +4,12 @@ import {
   Calculator,
   ChevronDown,
   ChevronRight,
+  FileText,
   Folder,
   FolderOpen,
   Loader2,
   Printer,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -33,7 +35,10 @@ import {
 import { formatCOP, formatFecha, formatFechaHora } from "@/lib/format";
 import { METODOS_PAGO } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
-import { imprimirComprobanteNomina } from "@/lib/recibo-nomina";
+import {
+  imprimirComprobanteNomina,
+  imprimirReporteNomina,
+} from "@/lib/recibo-nomina";
 import { useEmpleados } from "@/hooks/queries";
 import { useAuth } from "@/hooks/useAuth";
 import { EliminarLiquidacionButton } from "@/components/EliminarLiquidacionButton";
@@ -71,6 +76,12 @@ export default function Nomina() {
   const [metodo, setMetodo] = useState<MetodoPago>("efectivo");
   // Liquidación abierta: muestra qué servicios hizo el empleado en ese periodo.
   const [abierta, setAbierta] = useState<string | null>(null);
+  // Consulta de un periodo SIN liquidar (solo para mirar el trabajo hecho).
+  const [consulta, setConsulta] = useState<{
+    empleadoId: string;
+    inicio: string;
+    fin: string;
+  } | null>(null);
   // Liquidación que se está imprimiendo (para el spinner del botón).
   const [imprimiendoId, setImprimiendoId] = useState<string | null>(null);
   // Carpetas de empleado abiertas (cada trabajador lleva sus liquidaciones).
@@ -185,7 +196,7 @@ export default function Nomina() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Liquidar nómina</CardTitle>
+          <CardTitle className="text-base">Nómina del trabajador</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
@@ -238,22 +249,40 @@ export default function Nomina() {
                 </SelectContent>
               </Select>
             </div>
-            <Button
-              onClick={() => liquidar.mutate()}
-              disabled={liquidar.isPending || yaLiquidadoHoy}
-              title={
-                yaLiquidadoHoy
-                  ? "A este trabajador ya se le liquidó hoy"
-                  : undefined
-              }
-            >
-              {liquidar.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Calculator className="h-4 w-4" />
-              )}
-              Liquidar
-            </Button>
+            <div className="flex flex-col gap-2">
+              <Button
+                onClick={() => liquidar.mutate()}
+                disabled={liquidar.isPending || yaLiquidadoHoy}
+                title={
+                  yaLiquidadoHoy
+                    ? "A este trabajador ya se le liquidó hoy"
+                    : undefined
+                }
+              >
+                {liquidar.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Calculator className="h-4 w-4" />
+                )}
+                Liquidar
+              </Button>
+              {/* Solo reporte: muestra el trabajo del periodo sin liquidar
+                  nada ni tocar la caja. */}
+              <Button
+                variant="outline"
+                title="Ver cuánto ha hecho el trabajador entre las dos fechas, sin liquidar"
+                onClick={() => {
+                  if (!empleadoId) {
+                    toast.error("Selecciona un empleado");
+                    return;
+                  }
+                  setConsulta({ empleadoId, inicio, fin });
+                }}
+              >
+                <FileText className="h-4 w-4" />
+                Sacar reporte
+              </Button>
+            </div>
           </div>
           {yaLiquidadoHoy ? (
             <p className="mt-3 text-xs font-medium text-amber-700">
@@ -262,13 +291,31 @@ export default function Nomina() {
             </p>
           ) : (
             <p className="mt-3 text-xs text-muted-foreground">
-              Al liquidar, el monto a pagar se registra como <strong>egreso</strong> en
-              la caja principal con el método elegido. Cada trabajador se liquida una
-              sola vez al día.
+              <strong>Sacar reporte</strong> solo muestra qué hizo el trabajador entre
+              las dos fechas: no liquida ni toca la caja. Al{" "}
+              <strong>liquidar</strong>, en cambio, el monto a pagar se registra como
+              egreso en la caja principal con el método elegido, y cada trabajador se
+              liquida una sola vez al día.
             </p>
           )}
         </CardContent>
       </Card>
+
+      {/* Consulta del periodo: informativa, no genera liquidación. */}
+      {consulta && (
+        <ResumenPeriodo
+          key={`${consulta.empleadoId}-${consulta.inicio}-${consulta.fin}`}
+          empleadoId={consulta.empleadoId}
+          inicio={consulta.inicio}
+          fin={consulta.fin}
+          nombre={nombrePorId.get(consulta.empleadoId) ?? "Trabajador"}
+          porcentaje={
+            Number(todosLosEmpleados.find((e) => e.id === consulta.empleadoId)
+              ?.porcentaje_comision) || 0
+          }
+          onCerrar={() => setConsulta(null)}
+        />
+      )}
 
       {/* Liquidaciones: una carpeta por trabajador, para no mezclarlos. */}
       <div className="space-y-3">
@@ -401,7 +448,11 @@ export default function Nomina() {
                                   colSpan={isStaff ? 8 : 7}
                                   className="bg-muted/30 p-0"
                                 >
-                                  <DetalleLiquidacion liquidacion={l} />
+                                  <DetalleOrdenes
+                                    empleadoId={l.empleado_id}
+                                    inicio={l.fecha_inicio}
+                                    fin={l.fecha_fin}
+                                  />
                                 </TableCell>
                               </TableRow>
                             ),
@@ -421,23 +472,148 @@ export default function Nomina() {
 }
 
 /**
- * Detalle de una liquidación: qué órdenes atendió el empleado en ese periodo y
- * qué servicios le hizo a cada una. Se reconstruye en el servidor con el mismo
- * criterio con que se liquidó (`detalle_nomina`, migración 0030).
+ * Consulta de un periodo: qué hizo el trabajador entre dos fechas y cuánto le
+ * correspondería, SIN liquidar. No inserta liquidación ni toca la caja; los
+ * totales se calculan igual que en `liquidar_nomina` (una orden = un servicio,
+ * se cuenta el total real de la orden y la comisión es el % del trabajador).
  */
-function DetalleLiquidacion({ liquidacion }: { liquidacion: NominaLiquidacion }) {
-  const { data: ordenes = [], isLoading } = useQuery({
-    queryKey: ["nomina", "detalle", liquidacion.id],
+function ResumenPeriodo({
+  empleadoId,
+  inicio,
+  fin,
+  nombre,
+  porcentaje,
+  onCerrar,
+}: {
+  empleadoId: string;
+  inicio: string;
+  fin: string;
+  nombre: string;
+  porcentaje: number;
+  onCerrar: () => void;
+}) {
+  const { data: ordenes = [], isLoading } = useDetalleNomina(empleadoId, inicio, fin);
+  const [imprimiendo, setImprimiendo] = useState(false);
+
+  const facturado = ordenes.reduce((acc, o) => acc + Number(o.total), 0);
+  const comision = Math.round((facturado * porcentaje) / 100);
+
+  // Tirilla del reporte: dice que es informativa y no lleva línea de firma,
+  // para que no se confunda con el comprobante de una liquidación.
+  async function imprimir() {
+    setImprimiendo(true);
+    try {
+      await imprimirReporteNomina({ empleadoId, nombre, inicio, fin, porcentaje });
+    } catch (e) {
+      toast.error("No se pudo generar el reporte", {
+        description: e instanceof Error ? e.message : "",
+      });
+    } finally {
+      setImprimiendo(false);
+    }
+  }
+
+  return (
+    <Card className="border-primary/40">
+      <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <CardTitle className="text-base">Reporte de {nombre}</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            {formatFecha(inicio)} – {formatFecha(fin)} · solo reporte, no se
+            liquida nada ni se toca la caja
+          </p>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={imprimiendo || isLoading}
+            onClick={() => void imprimir()}
+          >
+            {imprimiendo ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Printer className="h-4 w-4" />
+            )}
+            Imprimir
+          </Button>
+          <Button variant="ghost" size="sm" onClick={onCerrar}>
+            <X className="h-4 w-4" />
+            Cerrar
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <DatoPeriodo titulo="Órdenes" valor={isLoading ? "…" : String(ordenes.length)} />
+          <DatoPeriodo
+            titulo="Facturado"
+            valor={isLoading ? "…" : formatCOP(facturado)}
+          />
+          <DatoPeriodo titulo="Comisión" valor={`${porcentaje}%`} />
+          <DatoPeriodo
+            titulo="Le correspondería"
+            valor={isLoading ? "…" : formatCOP(comision)}
+            destacado
+          />
+        </div>
+        <div className="overflow-hidden rounded-lg border">
+          <DetalleOrdenes empleadoId={empleadoId} inicio={inicio} fin={fin} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DatoPeriodo({
+  titulo,
+  valor,
+  destacado,
+}: {
+  titulo: string;
+  valor: string;
+  destacado?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border p-3">
+      <p className="text-xs text-muted-foreground">{titulo}</p>
+      <p className={`text-lg font-bold ${destacado ? "text-primary" : ""}`}>{valor}</p>
+    </div>
+  );
+}
+
+/**
+ * Órdenes que atendió un empleado entre dos fechas. Las arma el servidor con el
+ * mismo criterio con que se liquida (`detalle_nomina`, migración 0030), así que
+ * sirve igual para ver el detalle de una liquidación ya hecha que para
+ * consultar un periodo SIN liquidar.
+ */
+function useDetalleNomina(empleadoId: string, inicio: string, fin: string) {
+  return useQuery({
+    queryKey: ["nomina", "detalle", empleadoId, inicio, fin],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("detalle_nomina", {
-        p_empleado_id: liquidacion.empleado_id,
-        p_fecha_inicio: liquidacion.fecha_inicio,
-        p_fecha_fin: liquidacion.fecha_fin,
+        p_empleado_id: empleadoId,
+        p_fecha_inicio: inicio,
+        p_fecha_fin: fin,
       });
       if (error) throw error;
       return data ?? [];
     },
   });
+}
+
+/** Tabla de las órdenes del empleado en el periodo. */
+function DetalleOrdenes({
+  empleadoId,
+  inicio,
+  fin,
+}: {
+  empleadoId: string;
+  inicio: string;
+  fin: string;
+}) {
+  const { data: ordenes = [], isLoading } = useDetalleNomina(empleadoId, inicio, fin);
 
   if (isLoading) {
     return <p className="p-4 text-center text-sm text-muted-foreground">Cargando detalle…</p>;

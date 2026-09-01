@@ -227,6 +227,8 @@ export type Database = {
           total_transferencia: number;
           total_egresos: number;
           total_nomina: number;
+          /** Gastos fijos (arriendo, servicios) del cierre. Restan del general. */
+          total_gastos: number;
           total_general: number;
           total_general_manual: boolean;
           total_general_editado_por: string | null;
@@ -243,6 +245,7 @@ export type Database = {
           total_transferencia?: number;
           total_egresos?: number;
           total_nomina?: number;
+          total_gastos?: number;
           total_general?: number;
           total_general_manual?: boolean;
           total_general_editado_por?: string | null;

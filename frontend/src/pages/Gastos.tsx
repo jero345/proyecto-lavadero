@@ -135,8 +135,9 @@ export default function Gastos() {
           <h2 className="text-lg font-semibold">Gastos fijos</h2>
           <p className="text-xs text-muted-foreground">
             Arriendo y pago de servicios. Cada pago decide si{" "}
-            <strong>sale de la caja</strong> (egreso de la caja principal, entra
-            al cierre del día) o si queda solo en este registro.
+            <strong>se descuenta en el cierre de caja</strong> (no baja el total
+            del día, pero sí el general del cierre) o si queda solo en este
+            registro.
           </p>
         </div>
         <Button onClick={() => setEditando("nuevo")}>
@@ -247,13 +248,13 @@ export default function Gastos() {
                         <TableCell className="text-muted-foreground">
                           <span className="flex items-center gap-2 whitespace-nowrap">
                             {g.metodo_pago ? LABEL_METODO_PAGO[g.metodo_pago] : "—"}
-                            {/* Marca los que sí descontaron de la caja. */}
+                            {/* Marca los que se descuentan en el cierre. */}
                             {g.caja_movimiento_id && (
                               <Badge
                                 variant="outline"
                                 className="border-rose-200 bg-rose-50 text-rose-700"
                               >
-                                En caja
+                                En cierre
                               </Badge>
                             )}
                           </span>
@@ -339,7 +340,7 @@ function GastoDialog({
     },
     onSuccess: () => {
       toast.success(gasto ? "Gasto actualizado" : "Gasto registrado", {
-        description: afectaCaja ? "Descontado de la caja principal" : undefined,
+        description: afectaCaja ? "Se descontará en el cierre de caja" : undefined,
       });
       queryClient.invalidateQueries({ queryKey: ["gastos"] });
       queryClient.invalidateQueries({ queryKey: ["caja"] });
@@ -438,10 +439,10 @@ function GastoDialog({
               onChange={(e) => setAfectaCaja(e.target.checked)}
             />
             <span className="text-sm">
-              <span className="font-medium">Descontar de la caja</span>
+              <span className="font-medium">Descontar en el cierre de caja</span>
               <span className="mt-0.5 block text-xs text-muted-foreground">
                 {afectaCaja
-                  ? "Se registra un egreso en la caja principal con la fecha del pago; cuenta en el cierre de ese día."
+                  ? "No baja el total del día en Caja (esa plata no sale del cajón del turno): se descuenta al cerrar, en la columna Gastos fijos del cierre, y resta del total general."
                   : "Queda solo en este registro de gastos (por ejemplo, si se paga desde el banco)."}
               </span>
             </span>
