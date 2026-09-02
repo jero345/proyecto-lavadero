@@ -13,18 +13,15 @@ Lo que se recortó en la versión de 12: `gastos_fijos`, `vehiculos` (la orden s
 
 Cada archivo se pega completo en **Supabase → SQL Editor → New query → Run**.
 
-1. Dejar el proyecto en blanco, según lo que tenga hoy:
-   - `00_borrar_tablas_de_prueba.sql` — si todavía está el esquema del primer intento (`ventas`, `venta_items`). Si no lo encuentra, aborta sin tocar nada.
-   - `00b_borrar_esquema_del_lavadero.sql` — si ya montaste ahí el esquema del lavadero y querés volver a empezar. Borra todos los datos, así que trae un seguro manual: hay que cambiar `v_confirmo` a `'SI'` para que corra.
-   - Si el proyecto está vacío, saltá este paso.
-2. `reducido/01_schema.sql` — crea las 12 tablas con sus llaves, restricciones e índices, más el catálogo de servicios.
-3. **Crear el usuario**: Authentication → Users → Add user, y después:
+1. `reducido/01_borrar_y_crear.sql` — **borra lo que haya en el proyecto** y crea las 12 tablas con sus llaves, restricciones e índices, más el catálogo de servicios. Se puede correr las veces que haga falta. ⚠️ Empieza borrando: solo en el Supabase de la presentación.
+   (Si el proyecto todavía tiene el esquema del primer intento —`ventas`, `venta_items`— también se lo lleva por delante `00_borrar_tablas_de_prueba.sql`, que aborta si no lo encuentra.)
+2. **Tu fila en `profiles`**: si no tenés usuario, Authentication → Users → Add user; si ya lo tenías, sigue ahí (el borrado no toca `auth.users`). Después:
    ```sql
    insert into public.profiles (id, nombre, rol)
    values ('EL-UUID-DEL-USUARIO', 'Tu Nombre', 'super_admin');
    ```
-   Casi todas las tablas guardan *quién* registró cada cosa (`created_by`), por eso hace falta un perfil antes de sembrar datos.
-4. `reducido/02_datos_demo.sql` — un día de operación de ejemplo.
+   Casi todas las tablas guardan *quién* registró cada cosa (`created_by`), por eso hace falta el perfil antes de sembrar datos.
+3. `reducido/02_datos_demo.sql` — un día de operación de ejemplo.
 
 Para ver el diagrama ya montado: **Database → Schema Visualizer**.
 

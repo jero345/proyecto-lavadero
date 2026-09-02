@@ -15,7 +15,7 @@
 --      values ('EL-UUID-DEL-USUARIO', 'Tu Nombre', 'super_admin');
 --
 -- Se puede volver a correr: primero borra los datos de ejemplo anteriores.
--- Va DESPUÉS de `01_schema.sql` de esta misma carpeta.
+-- Va DESPUÉS de `01_borrar_y_crear.sql` de esta misma carpeta.
 -- ============================================================================
 
 begin;
@@ -56,7 +56,7 @@ begin
   select id into v_serv_plus from public.servicios
    where nombre = 'Plus' and tipo_vehiculo = 'auto';
   if v_serv_auto is null then
-    raise exception 'Faltan los servicios del catálogo: corré primero 01_schema.sql.';
+    raise exception 'Faltan los servicios del catálogo: corré primero 01_borrar_y_crear.sql.';
   end if;
 
   -- -------------------------------------------------------------------------

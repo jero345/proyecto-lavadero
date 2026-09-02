@@ -1,13 +1,27 @@
 -- ============================================================================
--- CAR WASH SERVICES — ESQUEMA REDUCIDO (versión para sustentar)
+-- CAR WASH SERVICES — BORRAR Y CREAR TODO (esquema reducido, 12 tablas)
 --
--- Es el mismo sistema, recortado a 12 tablas para que el modelo entidad-
--- relación se pueda explicar completo en una sustentación. Conserva el hilo
--- entero del negocio y todos los conceptos que se evalúan:
---   · relación uno a muchos                (clientes → ordenes)
---   · relación muchos a muchos con atributos (ordenes ↔ servicios vía orden_items)
---   · relación uno a uno por identificación  (auth.users → profiles)
---   · llave natural / restricción única      (servicios: nombre + tipo_vehiculo)
+-- Un solo archivo: primero borra el esquema que haya en el proyecto y después
+-- lo vuelve a crear limpio, con el catálogo de servicios cargado. Se puede
+-- correr las veces que haga falta.
+--
+--  ⚠️⚠️  EMPIEZA BORRANDO. Se lleva TODOS los datos: órdenes, clientes, caja,
+--        cierres y nómina del proyecto donde lo corras.
+--        CORRELO SOLO EN EL SUPABASE DE LA PRESENTACIÓN, nunca en el del
+--        lavadero de verdad. Mirá el nombre del proyecto arriba a la izquierda
+--        antes de darle Run.
+--
+--  Tus usuarios de Authentication (auth.users) NO se borran; sí se borra la
+--  tabla `profiles`, así que después hay que volver a insertar tu fila ahí con
+--  el mismo UUID (está explicado al final del archivo).
+--
+-- Es el mismo sistema de producción recortado a 12 tablas, para que el modelo
+-- entidad-relación se pueda explicar completo en una sustentación. Conserva
+-- todos los conceptos que se evalúan:
+--   · relación uno a muchos                   (clientes → ordenes)
+--   · relación muchos a muchos con atributos  (ordenes ↔ servicios vía orden_items)
+--   · relación uno a uno por identificación   (auth.users → profiles)
+--   · llave natural / restricción única       (servicios: nombre + tipo_vehiculo)
 --   · integridad referencial con las tres reglas de borrado
 --     (RESTRICT para el historial, CASCADE para lo dependiente, SET NULL para
 --      lo opcional)
@@ -19,17 +33,41 @@
 --   …y algunas columnas de detalle operativo (ajuste manual del cierre,
 --   movimientos fuera de caja, foto de la orden).
 --
--- Producción NO usa este archivo: allá el esquema real lo arman las
--- migraciones 0001–0036, y la versión completa está en ../completo/01_schema.sql
+-- Producción NO usa este archivo: allá el esquema lo arman las migraciones
+-- 0001–0036, y la versión completa está en ../completo/01_schema.sql
 --
 -- CÓMO USARLO
 --   1) Supabase → SQL Editor → New query → pegar todo → Run.
---   2) Crear el usuario (ver el final del archivo).
+--   2) Crear el usuario y su perfil (ver el final del archivo).
 --   3) Correr `02_datos_demo.sql` de esta misma carpeta.
 --   4) Ver el diagrama en Database → Schema Visualizer.
 -- ============================================================================
 
 begin;
+
+-- ---------------------------------------------------------------------------
+-- 0) BORRAR lo que haya. Se listan las 15 tablas posibles (las 12 de esta
+--    versión más las tres que solo existen en la completa), así el archivo
+--    sirve igual venga el proyecto de donde venga. `cascade` se encarga de las
+--    llaves foráneas entre ellas.
+-- ---------------------------------------------------------------------------
+drop table if exists
+  public.gastos_fijos,
+  public.ventas_productos,
+  public.inventario_movimientos,
+  public.nomina_liquidaciones,
+  public.caja_movimientos,
+  public.cierres_caja,
+  public.orden_items,
+  public.ordenes,
+  public.vehiculos,
+  public.clientes,
+  public.productos,
+  public.servicios,
+  public.tipos_vehiculo,
+  public.empleados,
+  public.profiles
+cascade;
 
 create extension if not exists pgcrypto;
 
@@ -305,10 +343,12 @@ alter table public.nomina_liquidaciones enable row level security;
 commit;
 
 -- ============================================================================
--- PASO SIGUIENTE — crear tu usuario (hace falta para los datos de ejemplo:
+-- PASO SIGUIENTE — tu fila en `profiles` (hace falta para los datos de ejemplo:
 -- las tablas guardan QUIÉN registró cada cosa):
---   1) Supabase → Authentication → Users → Add user (email + contraseña).
---   2) Copiá su UUID y corré, reemplazando los valores:
+--   1) Si todavía no tenés usuario: Supabase → Authentication → Users → Add
+--      user. Si ya lo tenías, sigue estando: el borrado de arriba no toca
+--      auth.users, solo se llevó su fila de profiles.
+--   2) Authentication → Users → copiá el UUID y corré, cambiando los valores:
 --
 -- insert into public.profiles (id, nombre, rol)
 -- values ('PEGA-AQUI-EL-UUID', 'Tu Nombre', 'super_admin')
