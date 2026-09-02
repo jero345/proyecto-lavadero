@@ -13,7 +13,10 @@ Lo que se recortó en la versión de 12: `gastos_fijos`, `vehiculos` (la orden s
 
 Cada archivo se pega completo en **Supabase → SQL Editor → New query → Run**.
 
-1. `00_borrar_tablas_de_prueba.sql` — solo si el proyecto todavía tiene el esquema del primer intento (`ventas`, `venta_items`). Si no lo encuentra, aborta sin tocar nada.
+1. Dejar el proyecto en blanco, según lo que tenga hoy:
+   - `00_borrar_tablas_de_prueba.sql` — si todavía está el esquema del primer intento (`ventas`, `venta_items`). Si no lo encuentra, aborta sin tocar nada.
+   - `00b_borrar_esquema_del_lavadero.sql` — si ya montaste ahí el esquema del lavadero y querés volver a empezar. Borra todos los datos, así que trae un seguro manual: hay que cambiar `v_confirmo` a `'SI'` para que corra.
+   - Si el proyecto está vacío, saltá este paso.
 2. `reducido/01_schema.sql` — crea las 12 tablas con sus llaves, restricciones e índices, más el catálogo de servicios.
 3. **Crear el usuario**: Authentication → Users → Add user, y después:
    ```sql
