@@ -1,167 +1,159 @@
 # Montar la base de datos en Supabase (presentación)
 
-Hay **dos versiones** del mismo sistema. Para sustentar conviene la reducida.
+Hay **dos versiones** del mismo sistema.
 
-| Carpeta | Tablas | Para qué |
+| Carpeta | Qué es | Para qué |
 |---|---|---|
-| **`reducido/`** | **12** | **La de la presentación.** Conserva el hilo completo del negocio y todos los conceptos que se evalúan, pero se explica entero en una sustentación. |
-| `completo/` | 15 | Lo que corre en producción hoy. Agrega gastos fijos (arriendo y servicios), vehículos e historial de stock. |
+| **`reducido/`** | **13 tablas + 4 vistas, modelo normalizado** | **La de la presentación.** Un solo archivo: borra, crea y deja datos de ejemplo cargados. |
+| `completo/` | 15 tablas | Lo que corre en producción hoy, tal cual: con auditoría (`created_by`), gastos fijos y totales guardados. |
 
-Lo que se recortó en la versión de 12: `gastos_fijos`, `vehiculos` (la orden se queda con la placa directa) e `inventario_movimientos`, más algunas columnas de detalle operativo.
+## Cómo montarlo
 
-## Orden de ejecución
+Un solo paso: pegar **`reducido/01_borrar_y_crear.sql`** completo en **Supabase → SQL Editor → New query → Run**.
 
-Cada archivo se pega completo en **Supabase → SQL Editor → New query → Run**.
+Borra lo que haya, crea las tablas y las vistas, y siembra un día de operación. Se puede correr las veces que haga falta. ⚠️ **Empieza borrando**: solo en el Supabase de la presentación.
 
-1. `reducido/01_borrar_y_crear.sql` — **borra lo que haya en el proyecto** y crea las 12 tablas con sus llaves, restricciones e índices, más el catálogo de servicios. Se puede correr las veces que haga falta. ⚠️ Empieza borrando: solo en el Supabase de la presentación.
-   (Si el proyecto todavía tiene el esquema del primer intento —`ventas`, `venta_items`— también se lo lleva por delante `00_borrar_tablas_de_prueba.sql`, que aborta si no lo encuentra.)
-2. **Tu fila en `profiles`**: si no tenés usuario, Authentication → Users → Add user; si ya lo tenías, sigue ahí (el borrado no toca `auth.users`). Después:
-   ```sql
-   insert into public.profiles (id, nombre, rol)
-   values ('EL-UUID-DEL-USUARIO', 'Tu Nombre', 'super_admin');
-   ```
-   Casi todas las tablas guardan *quién* registró cada cosa (`created_by`), por eso hace falta el perfil antes de sembrar datos.
-3. `reducido/02_datos_demo.sql` — un día de operación de ejemplo.
+Después: **Database → Schema Visualizer** para ver el diagrama. Al final del archivo hay consultas listas para mostrar en la sustentación.
 
-Para ver el diagrama ya montado: **Database → Schema Visualizer**.
+Ya no hace falta crear usuario ni fila en `profiles`: el modelo académico no depende del login de Supabase.
 
-> Estos archivos crean las **tablas**. La lógica de negocio (funciones `crear_orden`, `cobrar_orden`, `cerrar_caja`, `liquidar_nomina`…) y las políticas RLS están en `backend/migrations/0002` → `0036`. Si querés la aplicación funcionando de verdad contra una base nueva, corré esas migraciones en orden en vez de estos esquemas consolidados.
+## Qué se corrigió respecto de la primera versión
+
+El profesor señaló que había demasiados ids y pidió normalizar. Los cuatro cambios:
+
+1. **Fuera los ids que no son del negocio.** `created_by` estaba en cinco tablas y `profiles` existía solo para engancharse a `auth.users`. Eso es auditoría de la aplicación, no del modelo: seis columnas de id y una tabla menos.
+2. **La placa vive en un solo lugar.** Estaba repetida en `clientes` y en `ordenes` — una dependencia transitiva. Vuelve la entidad `vehiculos`: el cliente tiene vehículos y la orden apunta al vehículo.
+3. **La venta de productos tiene cabecera.** Antes las líneas del carrito se agrupaban con un `venta_grupo_id` suelto y repetían fecha y método de pago en cada fila. Ahora es `ventas` + `venta_detalle`, el modelo clásico de factura.
+4. **No se guarda nada calculado.** Se fueron `ordenes.total`, los totales de `cierres_caja` y el `total_pagar` de la nómina: todos salen de vistas (`v_ordenes`, `v_ventas`, `v_cierres`, `v_nomina`). Un total no puede quedar en desacuerdo con su detalle.
+
+Además, los ids son enteros (1, 2, 3) en vez de UUID, para que se lean en la sustentación.
+
+**Resultado: 13 tablas, 13 llaves foráneas (antes 23), tercera forma normal sin excepciones.**
+
+> En producción varias de esas decisiones van al revés a propósito: UUID porque los ids viajan en la URL, `created_by` porque el negocio necesita saber quién registró cada cobro, y totales guardados porque un cierre de caja es un documento contable que no puede cambiar si alguien corrige un movimiento viejo. Son dos objetivos distintos: el modelo académico busca pureza; el de producción, trazabilidad.
 
 ---
 
-## Modelo entidad-relación (versión de 12 tablas)
+## Modelo entidad-relación
 
 ```mermaid
 erDiagram
-    AUTH_USERS ||--|| PROFILES : "es"
-    PROFILES ||--o{ ORDENES : "registra"
-    PROFILES ||--o{ CAJA_MOVIMIENTOS : "registra"
-    PROFILES ||--o{ CIERRES_CAJA : "cierra"
-    PROFILES ||--o{ VENTAS_PRODUCTOS : "registra"
-
-    CLIENTES ||--o{ ORDENES : "solicita"
+    CLIENTES ||--o{ VEHICULOS : "tiene"
+    TIPOS_VEHICULO ||--o{ VEHICULOS : "clasifica"
     TIPOS_VEHICULO ||--o{ SERVICIOS : "tarifa por"
 
-    ORDENES ||--|{ ORDEN_ITEMS : "detalla"
-    SERVICIOS ||--o{ ORDEN_ITEMS : "se presta en"
-    EMPLEADOS ||--o{ ORDEN_ITEMS : "ejecuta"
+    VEHICULOS ||--o{ ORDENES : "recibe"
+    ORDENES ||--|{ ORDEN_DETALLE : "detalla"
+    SERVICIOS ||--o{ ORDEN_DETALLE : "se presta en"
+    EMPLEADOS ||--o{ ORDEN_DETALLE : "ejecuta"
     EMPLEADOS ||--o{ NOMINA_LIQUIDACIONES : "cobra"
 
+    VENTAS ||--|{ VENTA_DETALLE : "detalla"
+    PRODUCTOS ||--o{ VENTA_DETALLE : "se vende en"
+
     ORDENES ||--o{ CAJA_MOVIMIENTOS : "genera ingreso"
+    VENTAS ||--o{ CAJA_MOVIMIENTOS : "genera ingreso"
     CIERRES_CAJA ||--o{ CAJA_MOVIMIENTOS : "consolida"
 
-    PRODUCTOS ||--o{ VENTAS_PRODUCTOS : "se vende en"
-
-    PROFILES {
-        uuid id PK "= auth.users.id"
+    CLIENTES {
+        bigint id PK
         text nombre
-        text rol "super_admin | admin | empleado"
+        text telefono
+    }
+    TIPOS_VEHICULO {
+        bigint id PK
+        text nombre UK
         boolean activo
     }
+    VEHICULOS {
+        bigint id PK
+        bigint cliente_id FK
+        bigint tipo_vehiculo_id FK
+        text placa UK
+    }
     EMPLEADOS {
-        uuid id PK
+        bigint id PK
         text nombre
         text telefono
         numeric porcentaje_comision
         boolean activo
     }
-    CLIENTES {
-        uuid id PK
-        text nombre
-        text telefono
-        text placa
-    }
-    TIPOS_VEHICULO {
-        text codigo PK
-        text nombre
-        int orden
-        boolean activo
-    }
     SERVICIOS {
-        uuid id PK
+        bigint id PK
         text categoria
         text nombre
-        text tipo_vehiculo FK
+        bigint tipo_vehiculo_id FK
         numeric precio
         boolean activo
     }
     ORDENES {
-        uuid id PK
-        uuid cliente_id FK
-        text placa
+        bigint id PK
+        bigint vehiculo_id FK
+        timestamptz fecha_ingreso
+        timestamptz fecha_entrega
         text estado "en_proceso | completado | entregado"
         text metodo_pago "NULL = sin cobrar"
-        numeric total
-        timestamptz entregado_at
-        uuid created_by FK
+        text observaciones
     }
-    ORDEN_ITEMS {
-        uuid id PK
-        uuid orden_id FK
-        uuid servicio_id FK
-        uuid empleado_id FK
+    ORDEN_DETALLE {
+        bigint id PK
+        bigint orden_id FK
+        bigint servicio_id FK
+        bigint empleado_id FK
         numeric precio
         numeric comision_porcentaje
     }
-    CAJA_MOVIMIENTOS {
-        uuid id PK
-        text tipo "ingreso | egreso"
-        text concepto
+    PRODUCTOS {
+        bigint id PK
+        text nombre UK
+        numeric precio
+        int stock_actual
+        int stock_minimo
+    }
+    VENTAS {
+        bigint id PK
+        timestamptz fecha
         text metodo_pago
-        numeric monto
-        text caja "principal | inventario"
-        uuid orden_id FK
-        uuid cierre_id FK "NULL = caja abierta"
-        uuid created_by FK
+    }
+    VENTA_DETALLE {
+        bigint id PK
+        bigint venta_id FK
+        bigint producto_id FK
+        int cantidad
+        numeric precio_unitario
     }
     CIERRES_CAJA {
-        uuid id PK
-        text caja
+        bigint id PK
+        timestamptz fecha_apertura
         timestamptz fecha_cierre
-        numeric total_efectivo
-        numeric total_qr
-        numeric total_transferencia
-        numeric total_egresos
-        numeric total_nomina
-        numeric total_general
-        uuid created_by FK
     }
-    PRODUCTOS {
-        uuid id PK
-        text nombre
-        numeric stock_actual
-        numeric stock_minimo
-        numeric precio
-    }
-    VENTAS_PRODUCTOS {
-        uuid id PK
-        uuid producto_id FK
-        text producto_nombre
-        numeric cantidad
-        numeric precio_unitario
-        numeric total
+    CAJA_MOVIMIENTOS {
+        bigint id PK
+        timestamptz fecha
+        text tipo "ingreso | egreso"
+        text concepto
+        numeric monto
         text metodo_pago
-        uuid venta_grupo_id "agrupa el carrito"
-        uuid created_by FK
+        bigint orden_id FK
+        bigint venta_id FK
+        bigint cierre_id FK "NULL = caja abierta"
     }
     NOMINA_LIQUIDACIONES {
-        uuid id PK
-        uuid empleado_id FK
+        bigint id PK
+        bigint empleado_id FK
         date fecha_inicio
         date fecha_fin
-        int total_servicios
-        numeric total_facturado
         numeric porcentaje
-        numeric total_pagar
     }
 ```
 
+Las vistas (`v_ordenes`, `v_ventas`, `v_cierres`, `v_nomina`) no aparecen en el diagrama porque no son entidades: son consultas guardadas que calculan los totales.
+
 ### Cómo leerlo
 
-- **`profiles` vs `empleados`.** Son cosas distintas a propósito: `profiles` son los **usuarios que inician sesión** (uno a uno con `auth.users`, comparten la llave primaria); `empleados` es el **roster de trabajadores**, que no tienen cuenta pero sí comisión y nómina.
-- **El muchos a muchos.** `ordenes` ↔ `servicios` se resuelve con la tabla asociativa `orden_items`, que además guarda atributos propios de la relación: el precio cobrado, el porcentaje de comisión y quién ejecutó el trabajo.
-- **El flujo del negocio.** `ordenes` → `orden_items` → `caja_movimientos` (el cobro) → `cierres_caja` (el corte del día) → `nomina_liquidaciones` (la comisión).
-- **Una llave que codifica un estado.** Mientras `caja_movimientos.cierre_id` sea nulo, el movimiento está en la caja abierta; al cerrar recibe el id del cierre y los totales quedan congelados.
-- **Dos cajas separadas.** `caja_movimientos.caja` distingue la caja `principal` (servicios) de la de `inventario` (venta de productos); cada una se cierra por aparte.
-- **Integridad del historial.** Las llaves hacia `profiles` son `ON DELETE RESTRICT`: un usuario se desactiva (`activo = false`), no se borra. `orden_items` es `ON DELETE CASCADE` respecto de `ordenes`: si se elimina una orden, sus ítems se van con ella. Y lo opcional es `ON DELETE SET NULL`: borrar una orden no borra el dinero que entró por ella.
-- **Fotos históricas.** `orden_items.precio` y `ventas_productos.producto_nombre` guardan el valor del momento: aunque después cambie la tarifa o se borre el producto, lo que ya pasó no se reescribe.
+- **El muchos a muchos.** `ordenes` ↔ `servicios` se resuelve con `orden_detalle`, que además guarda atributos de la relación: el precio cobrado, el porcentaje pactado y quién hizo el trabajo. Igual `ventas` ↔ `productos` con `venta_detalle`.
+- **El flujo del negocio.** `clientes` → `vehiculos` → `ordenes` → `orden_detalle` → `caja_movimientos` → `cierres_caja`, y por otro lado `empleados` → `orden_detalle` → `nomina_liquidaciones`.
+- **Una llave que codifica un estado.** Mientras `caja_movimientos.cierre_id` sea nulo, el movimiento está en la caja abierta; al cerrar recibe el id del corte.
+- **De dónde viene la plata.** `caja_movimientos` apunta a la orden o a la venta que lo originó, y un `CHECK` con `num_nonnulls` impide que apunte a las dos a la vez. Los movimientos sueltos (compras, nómina) no apuntan a ninguna.
+- **Integridad.** `CASCADE` donde el hijo no existe sin el padre (`orden_detalle` → `ordenes`, `venta_detalle` → `ventas`, `vehiculos` → `clientes`); `RESTRICT` en los catálogos, para que no se borre un servicio o un trabajador con historial; `SET NULL` en lo opcional, para que borrar una orden no borre la plata que entró por ella.
+- **Precio en el detalle.** `orden_detalle.precio` y `venta_detalle.precio_unitario` no son redundancia: son el precio al que se cobró *esa vez*. Es un atributo del hecho, no del catálogo — el mismo criterio de cualquier modelo de factura.

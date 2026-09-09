@@ -1,63 +1,74 @@
 -- ============================================================================
--- CAR WASH SERVICES — BORRAR Y CREAR TODO (esquema reducido, 12 tablas)
+-- CAR WASH SERVICES — MODELO NORMALIZADO (borra y crea todo, con datos)
 --
--- Un solo archivo: primero borra el esquema que haya en el proyecto y después
--- lo vuelve a crear limpio, con el catálogo de servicios cargado. Se puede
--- correr las veces que haga falta.
+-- Un solo archivo: borra lo que haya en el proyecto, crea el modelo completo,
+-- los catálogos, las vistas y un día de operación de ejemplo. Se puede correr
+-- las veces que haga falta.
 --
---  ⚠️⚠️  EMPIEZA BORRANDO. Se lleva TODOS los datos: órdenes, clientes, caja,
---        cierres y nómina del proyecto donde lo corras.
---        CORRELO SOLO EN EL SUPABASE DE LA PRESENTACIÓN, nunca en el del
---        lavadero de verdad. Mirá el nombre del proyecto arriba a la izquierda
---        antes de darle Run.
+--  ⚠️  EMPIEZA BORRANDO. Corrélo SOLO en el Supabase de la presentación,
+--      nunca en el del lavadero de verdad. Mirá el nombre del proyecto arriba
+--      a la izquierda antes de darle Run.
 --
---  Tus usuarios de Authentication (auth.users) NO se borran; sí se borra la
---  tabla `profiles`, así que después hay que volver a insertar tu fila ahí con
---  el mismo UUID (está explicado al final del archivo).
+--  Pegar en: Supabase → SQL Editor → New query → Run.
+--  Después: Database → Schema Visualizer para ver el diagrama.
 --
--- Es el mismo sistema de producción recortado a 12 tablas, para que el modelo
--- entidad-relación se pueda explicar completo en una sustentación. Conserva
--- todos los conceptos que se evalúan:
---   · relación uno a muchos                   (clientes → ordenes)
---   · relación muchos a muchos con atributos  (ordenes ↔ servicios vía orden_items)
---   · relación uno a uno por identificación   (auth.users → profiles)
---   · llave natural / restricción única       (servicios: nombre + tipo_vehiculo)
---   · integridad referencial con las tres reglas de borrado
---     (RESTRICT para el historial, CASCADE para lo dependiente, SET NULL para
---      lo opcional)
+-- ----------------------------------------------------------------------------
+-- QUÉ CAMBIÓ RESPECTO DE LA VERSIÓN ANTERIOR (y por qué)
 --
--- QUÉ SE RECORTÓ respecto de producción (que tiene 15 tablas):
---   · gastos_fijos           — arriendo y servicios públicos
---   · vehiculos              — la orden se queda con la placa directa
---   · inventario_movimientos — historial de entradas/salidas de stock
---   …y algunas columnas de detalle operativo (ajuste manual del cierre,
---   movimientos fuera de caja, foto de la orden).
+--  1) SE FUERON LOS IDS QUE NO ERAN DEL NEGOCIO.
+--     Antes cinco tablas llevaban `created_by` (quién registró el dato) y
+--     existía la tabla `profiles` solo para engancharse al login de Supabase.
+--     Eso es auditoría de la aplicación, no parte del modelo del negocio: se
+--     quitó. Son seis columnas de id y una tabla menos.
 --
--- Producción NO usa este archivo: allá el esquema lo arman las migraciones
--- 0001–0036, y la versión completa está en ../completo/01_schema.sql
+--  2) LA PLACA VIVE EN UN SOLO LUGAR.
+--     Antes estaba repetida en `clientes` y en `ordenes` (dependencia
+--     transitiva). Ahora vuelve la entidad `vehiculos`: el cliente tiene
+--     vehículos y la orden apunta al vehículo. La placa está una sola vez.
 --
--- CÓMO USARLO
---   1) Supabase → SQL Editor → New query → pegar todo → Run.
---   2) Crear el usuario y su perfil (ver el final del archivo).
---   3) Correr `02_datos_demo.sql` de esta misma carpeta.
---   4) Ver el diagrama en Database → Schema Visualizer.
+--  3) LA VENTA DE PRODUCTOS TIENE CABECERA.
+--     Antes las líneas del carrito se agrupaban por un `venta_grupo_id` suelto
+--     y repetían fecha y método de pago en cada fila. Ahora es
+--     `ventas` (cabecera) + `venta_detalle` (líneas), como manda el modelo
+--     clásico de factura.
+--
+--  4) NO SE GUARDA NADA CALCULADO.
+--     Se fueron `ordenes.total`, los seis totales de `cierres_caja` y el
+--     `total_pagar` de la nómina. Todos salen de VISTAS (v_ordenes, v_ventas,
+--     v_cierres, v_nomina). Si cambia un detalle, el total cambia solo: no hay
+--     forma de que queden en desacuerdo.
+--
+--  5) IDS ENTEROS EN VEZ DE UUID.
+--     Se leen en la sustentación (1, 2, 3) en lugar de
+--     '3f2a…-9c1b'. El sistema en producción usa UUID por seguridad (los ids
+--     viajan en la URL), pero para explicar el modelo estorban.
+--
+--  RESULTADO: 13 tablas + 4 vistas, 13 llaves foráneas (antes 23) y 3FN sin
+--  excepciones.
+--  Lo único “repetido” a propósito es el precio en las líneas de detalle, que
+--  es el precio al que se cobró ESA vez: es un atributo del hecho, no del
+--  catálogo. Es exactamente el mismo criterio del modelo clásico de factura.
 -- ============================================================================
 
 begin;
 
 -- ---------------------------------------------------------------------------
--- 0) BORRAR lo que haya. Se listan las 15 tablas posibles (las 12 de esta
---    versión más las tres que solo existen en la completa), así el archivo
---    sirve igual venga el proyecto de donde venga. `cascade` se encarga de las
---    llaves foráneas entre ellas.
+-- 0) BORRAR todo lo anterior (las tablas viejas y las de este modelo).
 -- ---------------------------------------------------------------------------
+drop view if exists
+  public.v_ordenes, public.v_ventas, public.v_cierres, public.v_nomina cascade;
+
 drop table if exists
   public.gastos_fijos,
   public.ventas_productos,
+  public.venta_detalle,
+  public.ventas,
+  public.venta_items,
   public.inventario_movimientos,
   public.nomina_liquidaciones,
   public.caja_movimientos,
   public.cierres_caja,
+  public.orden_detalle,
   public.orden_items,
   public.ordenes,
   public.vehiculos,
@@ -69,290 +80,456 @@ drop table if exists
   public.profiles
 cascade;
 
-create extension if not exists pgcrypto;
+-- ===========================================================================
+--  CATÁLOGOS
+-- ===========================================================================
 
 -- ---------------------------------------------------------------------------
--- 1) profiles — USUARIOS DEL SISTEMA (los que inician sesión).
---    Uno a uno con auth.users: comparten la llave primaria, así el perfil no
---    puede existir sin cuenta ni duplicarse.
+-- 1) tipos_vehiculo — de qué es el vehículo. Es catálogo y no un texto suelto
+--    porque de él depende la tarifa.
 -- ---------------------------------------------------------------------------
-create table if not exists public.profiles (
-  id         uuid primary key references auth.users(id) on delete cascade,
-  nombre     text not null,
-  rol        text not null default 'empleado'
-               check (rol in ('super_admin','admin','empleado')),
-  activo     boolean not null default true,
-  created_at timestamptz not null default now()
-);
-comment on table public.profiles is
-  'Usuarios del sistema (login) con su rol. id = auth.users.id';
-
--- ---------------------------------------------------------------------------
--- 2) empleados — TRABAJADORES del lavadero. No inician sesión: existen para
---    asignarles el trabajo y pagarles su comisión.
--- ---------------------------------------------------------------------------
-create table if not exists public.empleados (
-  id                  uuid primary key default gen_random_uuid(),
-  nombre              text not null,
-  telefono            text,
-  porcentaje_comision numeric not null default 40
-                        check (porcentaje_comision >= 0 and porcentaje_comision <= 100),
-  activo              boolean not null default true,
-  created_at          timestamptz not null default now()
-);
-comment on table public.empleados is
-  'Trabajadores asignables a órdenes (comisión/nómina). NO son usuarios del sistema.';
-
--- ---------------------------------------------------------------------------
--- 3) clientes — dueños de los vehículos. Todo opcional: en un lavadero entra
---    gente de paso a la que no se le piden los datos.
--- ---------------------------------------------------------------------------
-create table if not exists public.clientes (
-  id         uuid primary key default gen_random_uuid(),
-  nombre     text not null,
-  telefono   text,
-  placa      text,
-  created_at timestamptz not null default now()
-);
-comment on table public.clientes is
-  'Clientes del lavadero. La placa identifica al cliente cuando se repite.';
-
--- ---------------------------------------------------------------------------
--- 4) tipos_vehiculo — catálogo con llave primaria de texto. Agregar un tipo
---    nuevo es insertar una fila, no alterar la tabla.
--- ---------------------------------------------------------------------------
-create table if not exists public.tipos_vehiculo (
-  codigo text primary key,
-  nombre text not null,
-  orden  int not null default 0,
+create table public.tipos_vehiculo (
+  id     bigint generated always as identity primary key,
+  nombre text not null unique,
   activo boolean not null default true
 );
 comment on table public.tipos_vehiculo is
-  'Catálogo de tipos de vehículo. codigo = valor usado en servicios.tipo_vehiculo.';
+  'Catálogo: moto, moto de alto cilindraje, auto, camioneta.';
 
 -- ---------------------------------------------------------------------------
--- 5) servicios — catálogo de precios. El precio depende del tipo de vehículo,
---    así que hay una fila por servicio Y tipo: (nombre, tipo_vehiculo) es la
---    llave natural.
+-- 2) servicios — el catálogo de precios. Una fila por servicio Y tipo de
+--    vehículo, porque el precio depende de los dos: la lavada sencilla vale
+--    $20.000 en moto y $33.000 en auto. (nombre, tipo_vehiculo_id) es la
+--    clave natural.
 -- ---------------------------------------------------------------------------
-create table if not exists public.servicios (
-  id            uuid primary key default gen_random_uuid(),
-  categoria     text not null,
-  nombre        text not null,
-  descripcion   text,
-  tipo_vehiculo text not null references public.tipos_vehiculo(codigo) on delete restrict,
-  precio        numeric not null check (precio >= 0),
-  activo        boolean not null default true,
-  unique (nombre, tipo_vehiculo)
+create table public.servicios (
+  id               bigint generated always as identity primary key,
+  categoria        text not null,
+  nombre           text not null,
+  tipo_vehiculo_id bigint not null references public.tipos_vehiculo(id) on delete restrict,
+  precio           numeric(12,2) not null check (precio >= 0),
+  activo           boolean not null default true,
+  unique (nombre, tipo_vehiculo_id)
 );
 comment on table public.servicios is
-  'Catálogo de servicios. Clave natural (nombre, tipo_vehiculo) para evitar duplicados.';
+  'Tarifas. El precio depende del servicio Y del tipo de vehículo.';
 
 -- ---------------------------------------------------------------------------
--- 6) cierres_caja — el corte del día. Va antes de caja_movimientos porque cada
---    movimiento apunta al cierre que lo consolidó.
+-- 3) productos — lo que se vende aparte del lavado.
 -- ---------------------------------------------------------------------------
-create table if not exists public.cierres_caja (
-  id                  uuid primary key default gen_random_uuid(),
-  caja                text not null default 'principal'
-                        check (caja in ('principal','inventario')),
-  fecha_apertura      timestamptz,
-  fecha_cierre        timestamptz not null default now(),
-  total_efectivo      numeric not null default 0,
-  total_qr            numeric not null default 0,
-  total_transferencia numeric not null default 0,
-  total_egresos       numeric not null default 0,
-  total_nomina        numeric not null default 0,
-  total_general       numeric not null default 0,
-  created_by          uuid not null references public.profiles(id) on delete restrict
+create table public.productos (
+  id           bigint generated always as identity primary key,
+  nombre       text not null unique,
+  precio       numeric(12,2) not null check (precio >= 0),
+  stock_actual integer not null default 0 check (stock_actual >= 0),
+  stock_minimo integer not null default 0 check (stock_minimo >= 0)
 );
-comment on table public.cierres_caja is
-  'Cierres de caja (principal e inventario, por separado). Los totales quedan guardados, no se recalculan.';
+comment on table public.productos is
+  'Productos de inventario (ambientadores, microfibras) con su stock.';
+
+-- ===========================================================================
+--  PERSONAS Y VEHÍCULOS
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- 4) empleados — los trabajadores del lavadero, con su % de comisión.
+-- ---------------------------------------------------------------------------
+create table public.empleados (
+  id                  bigint generated always as identity primary key,
+  nombre              text not null,
+  telefono            text,
+  porcentaje_comision numeric(5,2) not null default 40
+                        check (porcentaje_comision >= 0 and porcentaje_comision <= 100),
+  activo              boolean not null default true
+);
+comment on table public.empleados is
+  'Trabajadores. De su porcentaje sale la comisión de cada servicio que hacen.';
+
+-- ---------------------------------------------------------------------------
+-- 5) clientes — los dueños de los vehículos.
+-- ---------------------------------------------------------------------------
+create table public.clientes (
+  id       bigint generated always as identity primary key,
+  nombre   text not null,
+  telefono text
+);
+comment on table public.clientes is 'Clientes del lavadero.';
+
+-- ---------------------------------------------------------------------------
+-- 6) vehiculos — la placa vive acá y en ningún otro lado.
+-- ---------------------------------------------------------------------------
+create table public.vehiculos (
+  id               bigint generated always as identity primary key,
+  cliente_id       bigint not null references public.clientes(id) on delete cascade,
+  tipo_vehiculo_id bigint not null references public.tipos_vehiculo(id) on delete restrict,
+  placa            text not null unique
+);
+comment on table public.vehiculos is
+  'Vehículos de cada cliente. La placa es única: identifica el carro en el patio.';
+create index idx_vehiculos_cliente on public.vehiculos(cliente_id);
+
+-- ===========================================================================
+--  OPERACIÓN: LA ORDEN DE SERVICIO
+-- ===========================================================================
 
 -- ---------------------------------------------------------------------------
 -- 7) ordenes — un vehículo que entra a lavarse.
---    metodo_pago NULL = todavía sin cobrar.
+--    NO guarda el total (sale de v_ordenes) ni la placa (está en vehiculos)
+--    ni el cliente (se llega por el vehículo).
 -- ---------------------------------------------------------------------------
-create table if not exists public.ordenes (
-  id            uuid primary key default gen_random_uuid(),
-  cliente_id    uuid references public.clientes(id) on delete set null,
-  placa         text,
+create table public.ordenes (
+  id            bigint generated always as identity primary key,
+  vehiculo_id   bigint not null references public.vehiculos(id) on delete restrict,
+  fecha_ingreso timestamptz not null default now(),
+  fecha_entrega timestamptz,
   estado        text not null default 'en_proceso'
                   check (estado in ('en_proceso','completado','entregado')),
   metodo_pago   text check (metodo_pago in ('efectivo','qr','transferencia')),
-  total         numeric not null default 0 check (total >= 0),
   observaciones text,
-  entregado_at  timestamptz,
-  created_by    uuid not null references public.profiles(id) on delete restrict,
-  created_at    timestamptz not null default now()
+  -- No se puede entregar antes de recibir.
+  check (fecha_entrega is null or fecha_entrega >= fecha_ingreso)
 );
 comment on table public.ordenes is
-  'Órdenes de servicio. El total lo calcula el servidor: nunca se confía en el cliente.';
+  'Órdenes de servicio. metodo_pago NULL = todavía sin cobrar.';
 comment on column public.ordenes.metodo_pago is
-  'NULL = todavía sin cobrar. Al cobrar se llena y nace el ingreso en caja.';
-create index if not exists idx_ordenes_created_at on public.ordenes(created_at);
-create index if not exists idx_ordenes_estado     on public.ordenes(estado);
-create index if not exists idx_ordenes_placa      on public.ordenes(placa);
+  'NULL = sin cobrar. Al cobrar se llena y nace el ingreso en caja_movimientos.';
+create index idx_ordenes_vehiculo on public.ordenes(vehiculo_id);
+create index idx_ordenes_fecha    on public.ordenes(fecha_ingreso);
 
 -- ---------------------------------------------------------------------------
--- 8) orden_items — TABLA ASOCIATIVA. Resuelve el muchos a muchos entre órdenes
---    y servicios, y guarda los atributos que pertenecen a la relación: el
---    precio cobrado, el % de comisión pactado y quién ejecutó el trabajo.
+-- 8) orden_detalle — TABLA ASOCIATIVA: resuelve el muchos a muchos entre
+--    órdenes y servicios, y guarda los atributos propios de la relación:
+--    el precio al que se cobró, el % pactado y quién hizo el trabajo.
+--    Un mismo servicio no se repite dentro de una orden (clave única).
 -- ---------------------------------------------------------------------------
-create table if not exists public.orden_items (
-  id                  uuid primary key default gen_random_uuid(),
-  orden_id            uuid not null references public.ordenes(id)   on delete cascade,
-  servicio_id         uuid not null references public.servicios(id) on delete restrict,
-  empleado_id         uuid references public.empleados(id) on delete restrict,
-  precio              numeric not null check (precio >= 0),
-  comision_porcentaje numeric not null default 40
-                        check (comision_porcentaje >= 0 and comision_porcentaje <= 100)
+create table public.orden_detalle (
+  id                  bigint generated always as identity primary key,
+  orden_id            bigint not null references public.ordenes(id)   on delete cascade,
+  servicio_id         bigint not null references public.servicios(id) on delete restrict,
+  empleado_id         bigint not null references public.empleados(id) on delete restrict,
+  precio              numeric(12,2) not null check (precio >= 0),
+  comision_porcentaje numeric(5,2) not null
+                        check (comision_porcentaje >= 0 and comision_porcentaje <= 100),
+  unique (orden_id, servicio_id)
 );
-comment on table public.orden_items is
-  'Servicios de cada orden (tabla asociativa). empleado_id define de quién es la comisión.';
-create index if not exists idx_orden_items_orden    on public.orden_items(orden_id);
-create index if not exists idx_orden_items_empleado on public.orden_items(empleado_id);
+comment on table public.orden_detalle is
+  'Servicios de cada orden. El precio es el del momento, no el del catálogo de hoy.';
+create index idx_detalle_empleado on public.orden_detalle(empleado_id);
+
+-- ===========================================================================
+--  VENTA DE PRODUCTOS (cabecera + detalle, como una factura)
+-- ===========================================================================
 
 -- ---------------------------------------------------------------------------
--- 9) caja_movimientos — TODO el dinero que entra y sale.
---    cierre_id NULL = todavía en la caja abierta (la llave codifica el estado).
+-- 9) ventas — la cabecera: lo que es igual para todo el carrito.
 -- ---------------------------------------------------------------------------
-create table if not exists public.caja_movimientos (
-  id          uuid primary key default gen_random_uuid(),
+create table public.ventas (
+  id          bigint generated always as identity primary key,
+  fecha       timestamptz not null default now(),
+  metodo_pago text not null check (metodo_pago in ('efectivo','qr','transferencia'))
+);
+comment on table public.ventas is
+  'Cabecera de la venta de productos: una por carrito, con su método de pago.';
+
+-- ---------------------------------------------------------------------------
+-- 10) venta_detalle — una línea por producto vendido.
+-- ---------------------------------------------------------------------------
+create table public.venta_detalle (
+  id              bigint generated always as identity primary key,
+  venta_id        bigint not null references public.ventas(id)    on delete cascade,
+  producto_id     bigint not null references public.productos(id) on delete restrict,
+  cantidad        integer not null check (cantidad > 0),
+  precio_unitario numeric(12,2) not null check (precio_unitario >= 0),
+  unique (venta_id, producto_id)
+);
+comment on table public.venta_detalle is
+  'Líneas de la venta. El subtotal no se guarda: cantidad × precio_unitario.';
+
+-- ===========================================================================
+--  DINERO: CAJA Y CIERRES
+-- ===========================================================================
+
+-- ---------------------------------------------------------------------------
+-- 11) cierres_caja — el corte del turno. Sin totales: los calcula v_cierres.
+-- ---------------------------------------------------------------------------
+create table public.cierres_caja (
+  id             bigint generated always as identity primary key,
+  fecha_apertura timestamptz not null,
+  fecha_cierre   timestamptz not null default now(),
+  check (fecha_cierre >= fecha_apertura)
+);
+comment on table public.cierres_caja is
+  'Cortes de caja. Los totales salen de la vista v_cierres, no se guardan.';
+
+-- ---------------------------------------------------------------------------
+-- 12) caja_movimientos — todo el dinero que entra y sale.
+--     De dónde vino: de una orden, de una venta, o de ninguna de las dos
+--     (compras, pago de nómina). Nunca de las dos a la vez.
+--     cierre_id NULL = todavía en la caja abierta.
+-- ---------------------------------------------------------------------------
+create table public.caja_movimientos (
+  id          bigint generated always as identity primary key,
+  fecha       timestamptz not null default now(),
   tipo        text not null check (tipo in ('ingreso','egreso')),
-  concepto    text,
-  metodo_pago text check (metodo_pago in ('efectivo','qr','transferencia')),
-  monto       numeric not null check (monto >= 0),
-  caja        text not null default 'principal'
-                check (caja in ('principal','inventario')),
-  orden_id    uuid references public.ordenes(id)      on delete set null,
-  cierre_id   uuid references public.cierres_caja(id) on delete set null,
-  created_by  uuid not null references public.profiles(id) on delete restrict,
-  created_at  timestamptz not null default now()
+  concepto    text not null,
+  monto       numeric(12,2) not null check (monto > 0),
+  metodo_pago text not null check (metodo_pago in ('efectivo','qr','transferencia')),
+  orden_id    bigint references public.ordenes(id)      on delete set null,
+  venta_id    bigint references public.ventas(id)       on delete set null,
+  cierre_id   bigint references public.cierres_caja(id) on delete set null,
+  -- Un movimiento no puede venir de una orden Y de una venta al mismo tiempo.
+  check (num_nonnulls(orden_id, venta_id) <= 1)
 );
 comment on table public.caja_movimientos is
-  'Movimientos de caja. cierre_id NULL = aún sin cerrar; al cerrar recibe el id del cierre.';
-create index if not exists idx_caja_cierre     on public.caja_movimientos(cierre_id);
-create index if not exists idx_caja_created_at on public.caja_movimientos(created_at);
-create index if not exists idx_caja_orden      on public.caja_movimientos(orden_id);
+  'Movimientos de caja. cierre_id NULL = aún sin cerrar; al cerrar recibe el id del corte.';
+create index idx_caja_cierre on public.caja_movimientos(cierre_id);
+create index idx_caja_fecha  on public.caja_movimientos(fecha);
 
 -- ---------------------------------------------------------------------------
--- 10) productos — inventario que se vende (ambientadores, microfibras…).
+-- 13) nomina_liquidaciones — el periodo liquidado de un trabajador. Guarda el
+--     porcentaje pactado (dato histórico); cuánto se le paga lo calcula
+--     v_nomina a partir de los servicios que hizo en esas fechas.
 -- ---------------------------------------------------------------------------
-create table if not exists public.productos (
-  id           uuid primary key default gen_random_uuid(),
-  nombre       text not null,
-  stock_actual numeric not null default 0,
-  stock_minimo numeric not null default 0,
-  unidad       text,
-  precio       numeric not null default 0 check (precio >= 0)
-);
-comment on table public.productos is
-  'Productos de inventario con precio de venta y alerta de stock mínimo.';
-
--- ---------------------------------------------------------------------------
--- 11) ventas_productos — una fila por producto vendido. Las líneas de una misma
---     venta comparten venta_grupo_id: así el carrito sale en una sola factura.
---     Guarda el nombre y el precio del momento (foto histórica).
--- ---------------------------------------------------------------------------
-create table if not exists public.ventas_productos (
-  id              uuid primary key default gen_random_uuid(),
-  producto_id     uuid references public.productos(id) on delete set null,
-  producto_nombre text not null,
-  cantidad        numeric not null check (cantidad > 0),
-  precio_unitario numeric not null check (precio_unitario >= 0),
-  total           numeric not null check (total >= 0),
-  metodo_pago     text not null check (metodo_pago in ('efectivo','qr','transferencia')),
-  venta_grupo_id  uuid,
-  created_by      uuid not null references public.profiles(id) on delete restrict,
-  created_at      timestamptz not null default now()
-);
-comment on table public.ventas_productos is
-  'Ventas de productos. Descuentan stock y entran a la caja de inventario.';
-comment on column public.ventas_productos.venta_grupo_id is
-  'Agrupa las líneas de una misma venta (carrito): una sola factura por grupo.';
-create index if not exists idx_ventas_prod_producto on public.ventas_productos(producto_id);
-create index if not exists idx_ventas_prod_grupo    on public.ventas_productos(venta_grupo_id);
-
--- ---------------------------------------------------------------------------
--- 12) nomina_liquidaciones — lo que se le paga a cada trabajador por periodo.
---     Los totales quedan guardados: lo pagado en junio no cambia porque hoy se
---     le suba la comisión.
--- ---------------------------------------------------------------------------
-create table if not exists public.nomina_liquidaciones (
-  id              uuid primary key default gen_random_uuid(),
-  empleado_id     uuid not null references public.empleados(id) on delete restrict,
-  fecha_inicio    date not null,
-  fecha_fin       date not null,
-  total_servicios integer not null default 0,
-  total_facturado numeric not null default 0,
-  porcentaje      numeric not null default 40,
-  total_pagar     numeric not null default 0,
-  created_at      timestamptz not null default now()
+create table public.nomina_liquidaciones (
+  id           bigint generated always as identity primary key,
+  empleado_id  bigint not null references public.empleados(id) on delete restrict,
+  fecha_inicio date not null,
+  fecha_fin    date not null,
+  porcentaje   numeric(5,2) not null check (porcentaje >= 0 and porcentaje <= 100),
+  check (fecha_fin >= fecha_inicio),
+  unique (empleado_id, fecha_inicio, fecha_fin)
 );
 comment on table public.nomina_liquidaciones is
-  'Liquidaciones de comisión por trabajador y rango de fechas.';
-create index if not exists idx_nomina_empleado on public.nomina_liquidaciones(empleado_id);
+  'Periodos de nómina ya liquidados. El monto lo calcula la vista v_nomina.';
+
+-- ===========================================================================
+--  VISTAS — acá viven los datos calculados, para no guardarlos en las tablas
+-- ===========================================================================
+
+-- Orden con su cliente, su placa y el total sumado de sus servicios.
+create view public.v_ordenes as
+select
+  o.id                                   as orden_id,
+  o.fecha_ingreso,
+  o.fecha_entrega,
+  o.estado,
+  o.metodo_pago,
+  v.placa,
+  tv.nombre                              as tipo_vehiculo,
+  c.nombre                               as cliente,
+  count(d.id)                            as servicios,
+  coalesce(sum(d.precio), 0)             as total
+from public.ordenes o
+join public.vehiculos v       on v.id  = o.vehiculo_id
+join public.clientes c        on c.id  = v.cliente_id
+join public.tipos_vehiculo tv on tv.id = v.tipo_vehiculo_id
+left join public.orden_detalle d on d.orden_id = o.id
+group by o.id, v.placa, tv.nombre, c.nombre;
+
+comment on view public.v_ordenes is
+  'Órdenes con su total calculado: por eso ordenes no guarda la columna total.';
+
+-- Venta de productos con sus unidades y su total.
+create view public.v_ventas as
+select
+  ve.id                                              as venta_id,
+  ve.fecha,
+  ve.metodo_pago,
+  sum(vd.cantidad)                                   as unidades,
+  sum(vd.cantidad * vd.precio_unitario)              as total
+from public.ventas ve
+join public.venta_detalle vd on vd.venta_id = ve.id
+group by ve.id;
+
+comment on view public.v_ventas is
+  'Ventas con el total sumado de sus líneas.';
+
+-- Cierre de caja con el desglose por método de pago.
+create view public.v_cierres as
+select
+  cc.id as cierre_id,
+  cc.fecha_apertura,
+  cc.fecha_cierre,
+  coalesce(sum(m.monto) filter (where m.tipo = 'ingreso' and m.metodo_pago = 'efectivo'), 0)      as efectivo,
+  coalesce(sum(m.monto) filter (where m.tipo = 'ingreso' and m.metodo_pago = 'qr'), 0)            as qr,
+  coalesce(sum(m.monto) filter (where m.tipo = 'ingreso' and m.metodo_pago = 'transferencia'), 0) as transferencia,
+  coalesce(sum(m.monto) filter (where m.tipo = 'ingreso'), 0)                                     as total_ingresos,
+  coalesce(sum(m.monto) filter (where m.tipo = 'egreso'), 0)                                      as total_egresos,
+  coalesce(sum(m.monto) filter (where m.tipo = 'ingreso'), 0)
+    - coalesce(sum(m.monto) filter (where m.tipo = 'egreso'), 0)                                  as total_general
+from public.cierres_caja cc
+left join public.caja_movimientos m on m.cierre_id = cc.id
+group by cc.id;
+
+comment on view public.v_cierres is
+  'Totales de cada cierre calculados desde sus movimientos: nunca quedan descuadrados.';
+
+-- Liquidación de nómina con lo facturado y lo que se le paga al trabajador.
+create view public.v_nomina as
+select
+  l.id                                        as liquidacion_id,
+  e.nombre                                    as empleado,
+  l.fecha_inicio,
+  l.fecha_fin,
+  l.porcentaje,
+  count(t.orden_id)                           as servicios,
+  coalesce(sum(t.precio), 0)                  as facturado,
+  round(coalesce(sum(t.precio), 0) * l.porcentaje / 100) as total_pagar
+from public.nomina_liquidaciones l
+join public.empleados e on e.id = l.empleado_id
+left join (
+  select d.empleado_id,
+         d.orden_id,
+         d.precio,
+         (o.fecha_ingreso at time zone 'America/Bogota')::date as dia
+  from public.orden_detalle d
+  join public.ordenes o on o.id = d.orden_id
+) t on t.empleado_id = l.empleado_id
+   and t.dia between l.fecha_inicio and l.fecha_fin
+group by l.id, e.nombre;
+
+comment on view public.v_nomina is
+  'Lo que se le paga a cada trabajador, calculado desde los servicios que hizo en el periodo.';
+
+-- ===========================================================================
+--  DATOS DE EJEMPLO — un día de operación
+--  Los ids salen 1, 2, 3… porque las tablas se acaban de crear.
+-- ===========================================================================
+
+insert into public.tipos_vehiculo (nombre) values
+  ('Moto'),                    -- 1
+  ('Moto alto cilindraje'),    -- 2
+  ('Auto'),                    -- 3
+  ('Camioneta');               -- 4
+
+insert into public.servicios (categoria, nombre, tipo_vehiculo_id, precio) values
+  ('Lavado', 'Sencilla',            3, 33000),   -- 1  auto
+  ('Lavado', 'Plus',                3, 53000),   -- 2  auto
+  ('Lavado', 'Máster',              3, 65000),   -- 3  auto
+  ('Lavado', 'Sencilla',            1, 20000),   -- 4  moto
+  ('Lavado', 'Desengrasada',        1, 27000),   -- 5  moto
+  ('Lavado', 'Sencilla',            2, 24000),   -- 6  moto alto
+  ('Lavado', 'Sencilla',            4, 39000),   -- 7  camioneta
+  ('Otros',  'Aspirada',            3, 23000),   -- 8  auto
+  ('Otros',  'Brillada con máquina',3, 100000),  -- 9  auto
+  ('Otros',  'Aspirada',            4, 25000);   -- 10 camioneta
+
+insert into public.productos (nombre, precio, stock_actual, stock_minimo) values
+  ('Ambientador grande',       25000,  5, 2),   -- 1 (ya descontado el vendido)
+  ('Microfibra',                7000, 36, 10),  -- 2 (ya descontados los 2)
+  ('Limpiador de tapicería',   40000,  3,  3),  -- 3
+  ('Restaurador partes negras',20000,  9,  2);  -- 4
+
+insert into public.empleados (nombre, telefono, porcentaje_comision) values
+  ('Alex Ramírez',  '3001112233', 40),   -- 1
+  ('Carlos Gisao',  '3004445566', 45),   -- 2
+  ('Jhon Restrepo', '3007778899', 40);   -- 3
+
+insert into public.clientes (nombre, telefono) values
+  ('Rubén Darío Quintero', '3101112233'),  -- 1
+  ('María Fernanda López', '3104445566'),  -- 2
+  ('Andrés Mejía',         '3107778899'),  -- 3
+  ('Sandra Ocampo',        '3102223344');  -- 4
+
+insert into public.vehiculos (cliente_id, tipo_vehiculo_id, placa) values
+  (1, 3, 'FGQ955'),   -- 1  auto de Rubén
+  (2, 3, 'KDY826'),   -- 2  auto de María Fernanda
+  (3, 1, 'ITM42F'),   -- 3  moto de Andrés
+  (4, 4, 'QMO879'),   -- 4  camioneta de Sandra
+  (1, 1, 'CPH49E');   -- 5  Rubén también tiene moto
+
+-- Orden 1: cobrada y entregada.
+insert into public.ordenes (vehiculo_id, fecha_ingreso, fecha_entrega, estado, metodo_pago) values
+  (1, now() - interval '5 hours', now() - interval '2 hours', 'entregado', 'efectivo');
+insert into public.orden_detalle (orden_id, servicio_id, empleado_id, precio, comision_porcentaje) values
+  (1, 1, 1, 33000, 40);
+
+-- Orden 2: pagada por adelantado, todavía en proceso. DOS servicios y DOS
+-- trabajadores distintos: acá se ve el muchos a muchos.
+insert into public.ordenes (vehiculo_id, fecha_ingreso, estado, metodo_pago, observaciones) values
+  (2, now() - interval '3 hours', 'en_proceso', 'qr', 'Pagó por adelantado, pasa a las 6');
+insert into public.orden_detalle (orden_id, servicio_id, empleado_id, precio, comision_porcentaje) values
+  (2, 2, 2, 53000, 45),
+  (2, 8, 3, 23000, 40);
+
+-- Orden 3: todavía sin cobrar (metodo_pago NULL).
+insert into public.ordenes (vehiculo_id, fecha_ingreso, estado) values
+  (3, now() - interval '1 hour', 'en_proceso');
+insert into public.orden_detalle (orden_id, servicio_id, empleado_id, precio, comision_porcentaje) values
+  (3, 4, 3, 20000, 40);
+
+-- Venta de productos: un carrito con dos líneas.
+insert into public.ventas (fecha, metodo_pago) values
+  (now() - interval '2 hours', 'efectivo');
+insert into public.venta_detalle (venta_id, producto_id, cantidad, precio_unitario) values
+  (1, 1, 1, 25000),
+  (1, 2, 2,  7000);
+
+-- Cierre de AYER, con sus movimientos ya consolidados.
+insert into public.cierres_caja (fecha_apertura, fecha_cierre) values
+  (now() - interval '1 day 10 hours', now() - interval '1 day');
+
+insert into public.caja_movimientos (fecha, tipo, concepto, monto, metodo_pago, cierre_id) values
+  (now() - interval '1 day 8 hours', 'ingreso', 'Cobro orden GVO18I',    280000, 'efectivo', 1),
+  (now() - interval '1 day 7 hours', 'ingreso', 'Cobro orden PWV199',    120000, 'qr',       1),
+  (now() - interval '1 day 6 hours', 'egreso',  'Compra de microfibras',  25000, 'efectivo', 1),
+  (now() - interval '1 day 2 hours', 'egreso',  'Nómina: Carlos Gisao',   60000, 'efectivo', 1);
+
+-- Movimientos de HOY, todavía sin cerrar (cierre_id NULL).
+insert into public.caja_movimientos (fecha, tipo, concepto, monto, metodo_pago, orden_id, venta_id) values
+  (now() - interval '5 hours', 'ingreso', 'Cobro orden 1',      33000, 'efectivo', 1,    null),
+  (now() - interval '3 hours', 'ingreso', 'Cobro orden 2',      76000, 'qr',       2,    null),
+  (now() - interval '2 hours', 'ingreso', 'Venta de productos', 39000, 'efectivo', null, 1),
+  (now() - interval '4 hours', 'egreso',  'Compra de jabón',    18000, 'efectivo', null, null);
+
+-- Nómina de hoy para Alex (el monto lo calcula v_nomina).
+insert into public.nomina_liquidaciones (empleado_id, fecha_inicio, fecha_fin, porcentaje) values
+  (1, (now() at time zone 'America/Bogota')::date, (now() at time zone 'America/Bogota')::date, 40);
+
+insert into public.caja_movimientos (fecha, tipo, concepto, monto, metodo_pago) values
+  (now() - interval '30 minutes', 'egreso', 'Nómina: Alex Ramírez', 13200, 'efectivo');
 
 -- ---------------------------------------------------------------------------
--- SEED — catálogos base: tipos de vehículo y precios de los servicios.
+-- SEGURIDAD — RLS activo, como pide Supabase. Sin políticas nadie entra por la
+-- API pública; el panel (Table Editor y SQL Editor) sigue funcionando porque
+-- usa la llave de servicio.
 -- ---------------------------------------------------------------------------
-insert into public.tipos_vehiculo (codigo, nombre, orden) values
-  ('moto',      'Moto',                 1),
-  ('moto_alto', 'Moto alto cilindraje', 2),
-  ('auto',      'Auto',                 3),
-  ('camioneta', 'Camioneta',            4)
-on conflict (codigo) do nothing;
-
-insert into public.servicios (categoria, nombre, tipo_vehiculo, precio) values
-  ('Autos', 'Sencilla',     'auto', 33000),
-  ('Autos', 'Plus',         'auto', 53000),
-  ('Autos', 'Máster',       'auto', 65000),
-  ('Autos', 'Premium',      'auto', 172000),
-  ('Motos', 'Sencilla',     'moto', 20000),
-  ('Motos', 'Desengrasada', 'moto', 27000),
-  ('Motos', 'Plus',         'moto', 36000),
-  ('Motos alto cilindraje', 'Sencilla', 'moto_alto', 24000),
-  ('Motos alto cilindraje', 'Plus',     'moto_alto', 45000),
-  ('Otros', 'Aspirada',             'auto', 23000),
-  ('Otros', 'Lavada exterior',      'auto', 23000),
-  ('Otros', 'Brillada con máquina', 'auto', 100000),
-  ('Otros', 'Aspirada',             'camioneta', 25000),
-  ('Otros', 'Lavada exterior',      'camioneta', 25000),
-  ('Otros', 'Brillada con máquina', 'camioneta', 140000)
-on conflict (nombre, tipo_vehiculo) do nothing;
-
--- ---------------------------------------------------------------------------
--- SEGURIDAD — RLS activo en todas las tablas (así lo exige Supabase). Sin
--- políticas nadie entra por la API pública; el panel de Supabase sí funciona,
--- porque usa la llave de servicio.
--- ---------------------------------------------------------------------------
-alter table public.profiles             enable row level security;
-alter table public.empleados            enable row level security;
-alter table public.clientes             enable row level security;
 alter table public.tipos_vehiculo       enable row level security;
 alter table public.servicios            enable row level security;
-alter table public.cierres_caja         enable row level security;
-alter table public.ordenes              enable row level security;
-alter table public.orden_items          enable row level security;
-alter table public.caja_movimientos     enable row level security;
 alter table public.productos            enable row level security;
-alter table public.ventas_productos     enable row level security;
+alter table public.empleados            enable row level security;
+alter table public.clientes             enable row level security;
+alter table public.vehiculos            enable row level security;
+alter table public.ordenes              enable row level security;
+alter table public.orden_detalle        enable row level security;
+alter table public.ventas               enable row level security;
+alter table public.venta_detalle        enable row level security;
+alter table public.cierres_caja         enable row level security;
+alter table public.caja_movimientos     enable row level security;
 alter table public.nomina_liquidaciones enable row level security;
 
 commit;
 
 -- ============================================================================
--- PASO SIGUIENTE — tu fila en `profiles` (hace falta para los datos de ejemplo:
--- las tablas guardan QUIÉN registró cada cosa):
---   1) Si todavía no tenés usuario: Supabase → Authentication → Users → Add
---      user. Si ya lo tenías, sigue estando: el borrado de arriba no toca
---      auth.users, solo se llevó su fila de profiles.
---   2) Authentication → Users → copiá el UUID y corré, cambiando los valores:
+-- PARA MOSTRAR EN LA SUSTENTACIÓN (copiá y corré cualquiera):
 --
--- insert into public.profiles (id, nombre, rol)
--- values ('PEGA-AQUI-EL-UUID', 'Tu Nombre', 'super_admin')
--- on conflict (id) do update set rol = 'super_admin', activo = true;
+--   -- Las órdenes con su cliente, su placa y su total CALCULADO:
+--   select * from public.v_ordenes order by orden_id;
 --
---   3) Ahora sí: corré `02_datos_demo.sql` de esta carpeta.
+--   -- El detalle de la orden 2: dos servicios, dos trabajadores:
+--   select o.orden_id, s.nombre as servicio, e.nombre as trabajador, d.precio
+--   from public.orden_detalle d
+--   join public.v_ordenes o on o.orden_id = d.orden_id
+--   join public.servicios s on s.id = d.servicio_id
+--   join public.empleados e on e.id = d.empleado_id
+--   where d.orden_id = 2;
+--
+--   -- La venta de productos con su total:
+--   select * from public.v_ventas;
+--
+--   -- El cierre de ayer, cuadrado desde sus movimientos:
+--   select * from public.v_cierres;
+--
+--   -- Lo que se le paga a cada trabajador:
+--   select * from public.v_nomina;
 -- ============================================================================
