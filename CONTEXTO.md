@@ -196,7 +196,7 @@ total_servicios · total_facturado · porcentaje · total_pagar · created_at`
 
 ### Inventario
 
-**`productos`** — `id · nombre · stock_actual · stock_minimo · unidad · precio`
+**`productos`** — `id · nombre · stock_actual · stock_minimo · unidad · precio · activo` (0037: `activo=false` = desactivado, no se vende)
 **`ventas_productos`** — `id · producto_id · producto_nombre · cantidad ·
 precio_unitario · total · metodo_pago · created_by · created_at`
 **`inventario_movimientos`** — `id · producto_id · tipo ('entrada'|'salida') ·
@@ -269,7 +269,7 @@ Tres roles en `profiles.rol`:
 | Cobrar órdenes / editar el total | ✅ | ✅ | ✅ |
 | Clientes (crear/editar) | ✅ | ✅ | ✅ |
 | Servicios y tipos de vehículo | ✅ | ✅ | ver |
-| Inventario (mover stock, vender) | ✅ | ✅ | ✅ |
+| Inventario (productos, stock, vender, caja de inventario) | ✅ | ❌ | ❌ (solo super_admin desde 0037) |
 | Nómina (liquidar y ver) | ✅ | ✅ | ✅ (desde 0013) |
 | **Caja / Cierres / Movimientos** | ✅ | ✅ | ❌ |
 | **Gastos fijos** | ✅ | ✅ | ❌ |
@@ -308,7 +308,7 @@ cada función RPC). El frontend solo oculta; la base es la que decide.
 | `/gastos` | `Gastos.tsx` | staff | Gastos fijos (arriendo, servicios). Fuera de la caja |
 | `/empleados` | `Empleados.tsx` | staff | Roster: alta/edición, % de comisión, fecha de ingreso, observaciones, activar/desactivar |
 | `/nomina` | `Nomina.tsx` | todos | Liquidar por empleado y rango de fechas + historial de liquidaciones |
-| `/inventario` | `Inventario.tsx` | todos | Productos con stock mínimo, entradas/salidas, **venta de productos con recibo**, ventas recientes y caja de inventario |
+| `/inventario` | `Inventario.tsx` | **super_admin** | Productos con stock mínimo, entradas/salidas, activar/desactivar y eliminar, **venta de productos con recibo**, ventas recientes y caja de inventario |
 | `/clientes` | `Clientes.tsx` | todos | CRUD con validación anti-duplicados, búsqueda por placa, llamada y WhatsApp directos |
 | `/servicios` | `Servicios.tsx` | ver todos / editar staff | Catálogo de servicios + catálogo de tipos de vehículo |
 

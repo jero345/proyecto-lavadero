@@ -50,7 +50,9 @@ function fechaLocal(iso: string): string {
 
 export default function Cierres() {
   const { isSuperAdmin } = useAuth();
-  const [caja, setCaja] = useState<FiltroCaja>("todas");
+  // Arranca en la caja PRINCIPAL: la caja de inventario es un flujo aparte y no
+  // debe sumarse con la principal salvo que se pida ver "Todas las cajas".
+  const [caja, setCaja] = useState<FiltroCaja>("principal");
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
   const [detalle, setDetalle] = useState<CierreCaja | null>(null);
@@ -97,7 +99,7 @@ export default function Cierres() {
     return t;
   }, [filtrados]);
 
-  const hayFiltros = caja !== "todas" || desde !== "" || hasta !== "";
+  const hayFiltros = caja !== "principal" || desde !== "" || hasta !== "";
 
   return (
     <div className="space-y-4">
@@ -182,7 +184,7 @@ export default function Cierres() {
           <Button
             variant="ghost"
             onClick={() => {
-              setCaja("todas");
+              setCaja("principal");
               setDesde("");
               setHasta("");
             }}

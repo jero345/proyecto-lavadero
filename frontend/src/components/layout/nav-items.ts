@@ -28,6 +28,7 @@ export interface NavItem {
 
 const TODOS: Rol[] = ["super_admin", "admin", "empleado"];
 const STAFF: Rol[] = ["super_admin", "admin"];
+const SUPER_ADMIN: Rol[] = ["super_admin"];
 
 export const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, roles: TODOS, color: "bg-blue-100 text-blue-600" },
@@ -39,7 +40,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/gastos", label: "Gastos fijos", icon: Receipt, roles: STAFF, color: "bg-orange-100 text-orange-600" },
   { to: "/empleados", label: "Empleados", icon: Users, roles: STAFF, color: "bg-violet-100 text-violet-600" },
   { to: "/nomina", label: "Nómina", icon: HandCoins, roles: TODOS, color: "bg-amber-100 text-amber-600" },
-  { to: "/inventario", label: "Inventario", icon: Boxes, roles: TODOS, color: "bg-cyan-100 text-cyan-600" },
+  { to: "/inventario", label: "Inventario", icon: Boxes, roles: SUPER_ADMIN, color: "bg-cyan-100 text-cyan-600" },
   { to: "/clientes", label: "Clientes", icon: Contact, roles: TODOS, color: "bg-rose-100 text-rose-600" },
   { to: "/servicios", label: "Servicios", icon: Sparkles, roles: TODOS, color: "bg-fuchsia-100 text-fuchsia-600" },
 ];

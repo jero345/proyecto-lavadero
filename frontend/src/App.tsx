@@ -41,7 +41,6 @@ function App() {
             <Route path="pos" element={<POS />} />
             {/* Operativo: accesible a todos los usuarios con sesión */}
             <Route path="ordenes" element={<Ordenes />} />
-            <Route path="inventario" element={<Inventario />} />
             <Route path="clientes" element={<Clientes />} />
             <Route path="servicios" element={<Servicios />} />
             <Route path="nomina" element={<Nomina />} />
@@ -53,6 +52,11 @@ function App() {
               <Route path="movimientos" element={<Movimientos />} />
               <Route path="gastos" element={<Gastos />} />
               <Route path="empleados" element={<Empleados />} />
+            </Route>
+
+            {/* Solo super_admin: inventario (productos, ventas y su caja) */}
+            <Route element={<RoleRoute roles={["super_admin"]} />}>
+              <Route path="inventario" element={<Inventario />} />
             </Route>
           </Route>
         </Route>

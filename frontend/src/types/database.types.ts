@@ -291,6 +291,8 @@ export type Database = {
           stock_minimo: number;
           unidad: string | null;
           precio: number;
+          /** false = desactivado: no se vende ni se mueve, conserva historial. */
+          activo: boolean;
         };
         Insert: {
           id?: string;
@@ -299,6 +301,7 @@ export type Database = {
           stock_minimo?: number;
           unidad?: string | null;
           precio?: number;
+          activo?: boolean;
         };
         Update: Partial<Database["public"]["Tables"]["productos"]["Insert"]>;
         Relationships: [];

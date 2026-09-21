@@ -2,6 +2,8 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  Eye,
+  EyeOff,
   Loader2,
   Lock,
   Minus,
@@ -61,7 +63,6 @@ import { METODOS_PAGO, LABEL_METODO_PAGO } from "@/lib/dominio";
 import { imprimirReciboVenta } from "@/lib/recibo";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/hooks/useAuth";
 import type {
   CajaMovimiento,
   CierreCaja,
@@ -86,6 +87,19 @@ interface VentaAgrupada {
   metodo: MetodoPago;
   total: number;
   lineas: VentaProducto[];
+}
+
+/**
+ * La unidad es un texto ("L", "und", "ml"), no una cantidad. Si se escribe un
+ * número, el stock se vería como "0 1" en la tabla; se rechaza al guardar.
+ */
+function validarUnidad(unidad: string): string | null {
+  const u = unidad.trim();
+  if (!u) return null;
+  if (/^[0-9]+([.,][0-9]+)?$/.test(u)) {
+    throw new Error("La unidad es un texto (L, und, ml), no una cantidad");
+  }
+  return u;
 }
 
 /** Botón de icono redondo con hover suave — para las acciones de cada fila. */
@@ -119,12 +133,17 @@ function IconAction({
   );
 }
 
+/**
+ * Inventario: solo super_admin (ruta, menú y RPCs). La caja de inventario es un
+ * flujo aparte de la caja principal: sus ventas entran con caja='inventario' y
+ * tiene su propio cierre.
+ */
 export default function Inventario() {
   const queryClient = useQueryClient();
-  // La caja (movimientos y cierres) es solo del staff por RLS: al empleado se le
-  // oculta el recuadro para no mostrarle totales en $0 ni un botón muerto.
-  const { isStaff } = useAuth();
   const [editando, setEditando] = useState<Producto | null>(null);
+  const [eliminando, setEliminando] = useState<Producto | null>(null);
+  // Los desactivados se esconden por defecto para no estorbar al vender.
+  const [verInactivos, setVerInactivos] = useState(false);
   // Carrito: se venden varios productos juntos y sale una sola factura.
   const [carrito, setCarrito] = useState<ItemCarrito[]>([]);
   const [busquedaProd, setBusquedaProd] = useState("");
@@ -176,11 +195,14 @@ export default function Inventario() {
     });
   }
 
+  const inactivos = useMemo(() => productos.filter((p) => !p.activo).length, [productos]);
+
   const productosFiltrados = useMemo(() => {
     const q = busquedaProd.trim().toLowerCase();
-    if (!q) return productos;
-    return productos.filter((p) => p.nombre.toLowerCase().includes(q));
-  }, [productos, busquedaProd]);
+    return productos.filter(
+      (p) => (verInactivos || p.activo) && (!q || p.nombre.toLowerCase().includes(q)),
+    );
+  }, [productos, busquedaProd, verInactivos]);
 
   // Las líneas de una misma venta (carrito) se muestran juntas: una fila por
   // venta, con todos sus productos y un solo total. Las ventas viejas, de un
@@ -243,9 +265,52 @@ export default function Inventario() {
       }),
   });
 
+  // Desactivar: el producto deja de venderse pero conserva stock e historial.
+  const cambiarActivo = useMutation({
+    mutationFn: async ({ producto, activo }: { producto: Producto; activo: boolean }) => {
+      const { error } = await supabase
+        .from("productos")
+        .update({ activo })
+        .eq("id", producto.id);
+      if (error) throw error;
+    },
+    onSuccess: (_data, { producto, activo }) => {
+      toast.success(activo ? "Producto activado" : "Producto desactivado");
+      // Si se desactiva, se saca del carrito para no venderlo por error.
+      if (!activo) {
+        setCarrito((prev) => prev.filter((it) => it.producto.id !== producto.id));
+      }
+      invalidar();
+    },
+    onError: (e: unknown) =>
+      toast.error("No se pudo cambiar el estado", {
+        description: e instanceof Error ? e.message : "",
+      }),
+  });
+
+  // Eliminar: borra el producto y sus movimientos de stock. Las ventas ya
+  // hechas y su plata en caja se quedan (guardan el nombre del producto).
+  const eliminar = useMutation({
+    mutationFn: async (producto: Producto) => {
+      const { error } = await supabase.from("productos").delete().eq("id", producto.id);
+      if (error) throw error;
+      return producto;
+    },
+    onSuccess: (producto) => {
+      toast.success(`«${producto.nombre}» eliminado`);
+      setCarrito((prev) => prev.filter((it) => it.producto.id !== producto.id));
+      setEliminando(null);
+      invalidar();
+    },
+    onError: (e: unknown) =>
+      toast.error("No se pudo eliminar", {
+        description: e instanceof Error ? e.message : "",
+      }),
+  });
+
   return (
     <div className="space-y-6">
-      {isStaff && <CajaInventario />}
+      <CajaInventario />
 
       {carrito.length > 0 && (
         <CarritoVenta
@@ -260,14 +325,27 @@ export default function Inventario() {
         <NuevoProducto onCreado={invalidar} />
       </div>
 
-      <div className="relative sm:max-w-xs">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Buscar producto…"
-          className="pl-8"
-          value={busquedaProd}
-          onChange={(e) => setBusquedaProd(e.target.value)}
-        />
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Buscar producto…"
+            className="pl-8"
+            value={busquedaProd}
+            onChange={(e) => setBusquedaProd(e.target.value)}
+          />
+        </div>
+        {inactivos > 0 && (
+          <Button
+            variant={verInactivos ? "secondary" : "ghost"}
+            size="sm"
+            className="text-muted-foreground"
+            onClick={() => setVerInactivos((v) => !v)}
+          >
+            {verInactivos ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {verInactivos ? "Ocultar" : "Ver"} inactivos ({inactivos})
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -278,7 +356,9 @@ export default function Inventario() {
             </p>
           ) : productosFiltrados.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
-              Ningún producto coincide con «{busquedaProd}».
+              {busquedaProd.trim()
+                ? `Ningún producto coincide con «${busquedaProd}».`
+                : "Todos los productos están desactivados."}
             </p>
           ) : (
             <Table>
@@ -298,11 +378,22 @@ export default function Inventario() {
                   const precio = Number(p.precio) || 0;
                   const bajo = stock <= (Number(p.stock_minimo) || 0);
                   const sinPrecio = precio <= 0;
+                  const inactivo = !p.activo;
                   return (
-                    <TableRow key={p.id}>
-                      <TableCell className="font-medium">{p.nombre}</TableCell>
+                    <TableRow key={p.id} className={cn(inactivo && "opacity-60")}>
+                      <TableCell className="font-medium">
+                        {p.nombre}
+                        {inactivo && (
+                          <Badge variant="outline" className="ml-2 font-normal">
+                            Inactivo
+                          </Badge>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">
-                        {stock} {p.unidad ?? ""}
+                        {stock}
+                        {p.unidad && (
+                          <span className="ml-1 text-muted-foreground">{p.unidad}</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right text-muted-foreground">
                         {p.stock_minimo}
@@ -315,7 +406,9 @@ export default function Inventario() {
                         )}
                       </TableCell>
                       <TableCell>
-                        {bajo ? (
+                        {inactivo ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : bajo ? (
                           <Badge variant="destructive" className="gap-1">
                             <AlertTriangle className="h-3 w-3" />
                             Bajo
@@ -330,13 +423,15 @@ export default function Inventario() {
                             size="sm"
                             className="gap-1.5 rounded-full shadow-sm"
                             title={
-                              sinPrecio
-                                ? "Define un precio para poder vender"
-                                : stock <= 0
-                                  ? "Sin stock"
-                                  : "Agregar al carrito"
+                              inactivo
+                                ? "Producto desactivado"
+                                : sinPrecio
+                                  ? "Define un precio para poder vender"
+                                  : stock <= 0
+                                    ? "Sin stock"
+                                    : "Agregar al carrito"
                             }
-                            disabled={sinPrecio || stock <= 0}
+                            disabled={inactivo || sinPrecio || stock <= 0}
                             onClick={() => agregarAlCarrito(p)}
                           >
                             <ShoppingCart className="h-4 w-4" />
@@ -348,7 +443,7 @@ export default function Inventario() {
                           <IconAction
                             title="Entrada de stock"
                             className="text-emerald-600 hover:bg-emerald-100 hover:text-emerald-700"
-                            disabled={mover.isPending}
+                            disabled={inactivo || mover.isPending}
                             onClick={() => {
                               const c = Number(prompt(`Entrada de ${p.nombre}: cantidad`));
                               if (c) mover.mutate({ producto: p, tipo: "entrada", cantidad: c });
@@ -359,7 +454,7 @@ export default function Inventario() {
                           <IconAction
                             title="Salida de stock (ajuste/merma)"
                             className="text-rose-600 hover:bg-rose-100 hover:text-rose-700"
-                            disabled={mover.isPending}
+                            disabled={inactivo || mover.isPending}
                             onClick={() => {
                               const c = Number(prompt(`Salida de ${p.nombre}: cantidad`));
                               if (c) mover.mutate({ producto: p, tipo: "salida", cantidad: c });
@@ -373,6 +468,28 @@ export default function Inventario() {
                             onClick={() => setEditando(p)}
                           >
                             <SquarePen className="h-[18px] w-[18px]" />
+                          </IconAction>
+                          <IconAction
+                            title={inactivo ? "Activar producto" : "Desactivar producto"}
+                            className="text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                            disabled={cambiarActivo.isPending}
+                            onClick={() =>
+                              cambiarActivo.mutate({ producto: p, activo: inactivo })
+                            }
+                          >
+                            {inactivo ? (
+                              <Eye className="h-[18px] w-[18px]" />
+                            ) : (
+                              <EyeOff className="h-[18px] w-[18px]" />
+                            )}
+                          </IconAction>
+                          <IconAction
+                            title="Eliminar producto"
+                            className="text-rose-600 hover:bg-rose-100 hover:text-rose-700"
+                            disabled={eliminar.isPending}
+                            onClick={() => setEliminando(p)}
+                          >
+                            <Trash2 className="h-[18px] w-[18px]" />
                           </IconAction>
                         </div>
                       </TableCell>
@@ -473,6 +590,38 @@ export default function Inventario() {
       </Card>
 
       {/* Diálogos */}
+      <AlertDialog
+        open={Boolean(eliminando)}
+        onOpenChange={(o) => !o && !eliminar.isPending && setEliminando(null)}
+      >
+        {eliminando && (
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>¿Eliminar «{eliminando.nombre}»?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Se borra el producto y su historial de entradas/salidas de stock. Las
+                ventas ya registradas y su plata en la caja de inventario se conservan.
+                Si solo quieres dejar de venderlo, mejor desactívalo.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={eliminar.isPending}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={eliminar.isPending}
+                onClick={(e) => {
+                  e.preventDefault();
+                  eliminar.mutate(eliminando);
+                }}
+              >
+                {eliminar.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Sí, eliminar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        )}
+      </AlertDialog>
+
       <Dialog open={Boolean(editando)} onOpenChange={(o) => !o && setEditando(null)}>
         {editando && (
           <EditarProducto
@@ -504,7 +653,7 @@ function NuevoProducto({ onCreado }: { onCreado: () => void }) {
         nombre: nombre.trim(),
         stock_actual: Number(stock) || 0,
         stock_minimo: Number(minimo) || 0,
-        unidad: unidad.trim() || null,
+        unidad: validarUnidad(unidad),
         precio: Number(precio) || 0,
       });
       if (error) throw error;
@@ -617,7 +766,7 @@ function EditarProducto({
           nombre: nombre.trim(),
           precio: pr,
           stock_minimo: Number(minimo) || 0,
-          unidad: unidad.trim() || null,
+          unidad: validarUnidad(unidad),
         })
         .eq("id", producto.id);
       if (error) throw error;
@@ -893,7 +1042,8 @@ function CarritoVenta({
 
 /**
  * Caja de inventario: acumula el dinero de las ventas de productos, separada de
- * la caja principal. Tiene su propio cierre (independiente).
+ * la caja principal (caja='inventario'). Tiene su propio cierre y sus totales
+ * nunca se suman a los de la caja principal.
  */
 function CajaInventario() {
   const queryClient = useQueryClient();

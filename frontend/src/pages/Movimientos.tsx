@@ -61,7 +61,9 @@ const LABEL_CAJA: Record<CajaTipo, string> = {
 export default function Movimientos() {
   const { isStaff, isSuperAdmin } = useAuth();
   const [busqueda, setBusqueda] = useState("");
-  const [caja, setCaja] = useState<FiltroCaja>("todas");
+  // Arranca en la caja PRINCIPAL: la caja de inventario es un flujo aparte y no
+  // debe sumarse con la principal salvo que se pida ver "Todas las cajas".
+  const [caja, setCaja] = useState<FiltroCaja>("principal");
   const [tipo, setTipo] = useState<FiltroTipo>("todos");
   const [estado, setEstado] = useState<FiltroEstado>("todos");
   const [editando, setEditando] = useState<CajaMovimiento | null>(null);
