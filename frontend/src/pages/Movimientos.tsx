@@ -290,9 +290,27 @@ export default function Movimientos() {
                           {/* Suelto = ni cerrado ni de una orden. El super admin
                               además puede editar cerrados y de orden (el
                               servidor recalcula el cierre y sincroniza la orden);
-                              borrar sigue siendo solo para los sueltos. */}
+                              borrar sigue siendo solo para los sueltos.
+                              El inventario es solo del super admin, y el ingreso
+                              de una venta se corrige desde Inventario para que no
+                              se descuadre con el stock (migración 0041). */}
                           {(() => {
                             const suelto = m.cierre_id == null && m.orden_id == null;
+                            const esVenta = m.venta_grupo_id != null;
+                            const esInventario = m.caja === "inventario";
+                            if (esVenta) {
+                              return (
+                                <span
+                                  className="text-xs text-muted-foreground"
+                                  title="Es el ingreso de una venta de productos: corrígela o elimínala desde Inventario"
+                                >
+                                  Desde Inventario
+                                </span>
+                              );
+                            }
+                            if (esInventario && !isSuperAdmin) {
+                              return <span className="text-xs text-muted-foreground">—</span>;
+                            }
                             const puedeEditar = suelto || isSuperAdmin;
                             if (!puedeEditar && !suelto) {
                               return <span className="text-xs text-muted-foreground">—</span>;

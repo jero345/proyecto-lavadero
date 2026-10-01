@@ -247,8 +247,8 @@ Todas son `SECURITY DEFINER`, atómicas e idempotentes en su definición
 |---|---|
 | `crear_movimiento(tipo, concepto, metodo, monto, caja, fecha)` | Alta manual de ingreso/egreso con fecha libre. Si la fecha no es hoy (hora Colombia) nace `fuera_de_caja` |
 | `editar_movimiento(id, tipo, concepto, metodo, monto, fecha)` | Admin: solo movimientos sueltos y sin cerrar. **Super admin: cualquiera, incluso cerrados y de órdenes** — sincroniza la orden y recalcula el cierre afectado (migración 0028) |
-| `eliminar_movimiento(id)` | Staff. No borra cerrados ni atados a una orden |
-| `cerrar_caja(caja)` | Consolida los movimientos abiertos de **esa** caja agrupando por método de pago. Ignora los `fuera_de_caja`. Solo staff |
+| `eliminar_movimiento(id)` | Staff. No borra cerrados ni atados a una orden. La caja de inventario solo super_admin; el ingreso de una venta se borra desde Inventario (migración 0041) |
+| `cerrar_caja(caja)` | Consolida los movimientos abiertos de **esa** caja agrupando por método de pago. Ignora los `fuera_de_caja`. Solo staff; la caja `inventario` solo super_admin (migración 0041) |
 | `recalcular_cierre(id)` | Recalcula el desglose de un cierre; **respeta el total_general puesto a mano** |
 | `editar_total_cierre(cierre_id, total)` | **Solo super_admin.** Fija el total general a mano; con `NULL` quita el ajuste y vuelve al calculado (migración 0029) |
 
@@ -292,6 +292,7 @@ Tres roles en `profiles.rol`:
 | Clientes (crear/editar) | ✅ | ✅ | ✅ |
 | Servicios y tipos de vehículo | ✅ | ✅ | ver |
 | Inventario (productos, stock, vender, caja de inventario) | ✅ | ❌ | ❌ (solo super_admin desde 0037) |
+| Tocar la plata del inventario desde Movimientos | ✅ | ❌ | ❌ (migración 0041) |
 | Nómina (liquidar y ver) | ✅ | ✅ | ✅ (desde 0013) |
 | **Caja / Cierres / Movimientos** | ✅ | ✅ | ❌ |
 | **Gastos fijos** | ✅ | ✅ | ❌ |

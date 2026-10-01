@@ -50,7 +50,7 @@ export function NuevoMovimientoDialog({
   soloEgreso?: boolean;
 }) {
   const queryClient = useQueryClient();
-  const { isStaff } = useAuth();
+  const { isStaff, isSuperAdmin } = useAuth();
   const [open, setOpen] = useState(false);
 
   const [tipo, setTipo] = useState<TipoMovCaja>("egreso");
@@ -78,7 +78,7 @@ export function NuevoMovimientoDialog({
         p_concepto: concepto.trim() || null,
         p_metodo_pago: metodo,
         p_monto: valor,
-        p_caja: caja ?? (isStaff ? cajaSel : "principal"),
+        p_caja: caja ?? (isSuperAdmin ? cajaSel : "principal"),
         // Sin fecha explícita el servidor usa "ahora" (caso del empleado).
         ...(isStaff ? { p_fecha: desdeInputFechaHora(fecha) } : {}),
       });
@@ -114,8 +114,14 @@ export function NuevoMovimientoDialog({
           <DialogTitle>{fijarEgreso ? "Registrar egreso" : "Nuevo movimiento"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          {(!fijarEgreso || (!caja && isStaff)) && (
-            <div className={caja || fijarEgreso ? "space-y-2" : "grid grid-cols-2 gap-3"}>
+          {(!fijarEgreso || (!caja && isSuperAdmin)) && (
+            <div
+              className={
+                caja || fijarEgreso || !isSuperAdmin
+                  ? "space-y-2"
+                  : "grid grid-cols-2 gap-3"
+              }
+            >
               {!fijarEgreso && (
                 <div className="space-y-2">
                   <Label>Tipo</Label>
@@ -130,7 +136,9 @@ export function NuevoMovimientoDialog({
                   </Select>
                 </div>
               )}
-              {!caja && isStaff && (
+              {/* La caja de inventario es solo del super admin (mig. 0041): al
+                  admin ni siquiera se le ofrece elegirla. */}
+              {!caja && isSuperAdmin && (
                 <div className="space-y-2">
                   <Label>Caja</Label>
                   <Select value={cajaSel} onValueChange={(v) => setCajaSel(v as CajaTipo)}>
