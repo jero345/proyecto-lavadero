@@ -87,7 +87,15 @@ export async function imprimirComprobanteNomina(
     <div class="row"><span>Comision</span><span class="r">${liquidacion.porcentaje}%</span></div>
 
     <div class="sep"></div>
-    <div class="row total bold"><span>A PAGAR</span><span class="r">${formatCOP(liquidacion.total_pagar)}</span></div>
+    ${
+      Number(liquidacion.abono_prestamo) > 0
+        ? `<div class="row"><span>Comision</span><span class="r">${formatCOP(liquidacion.total_pagar)}</span></div>
+    <div class="row"><span>Abono prestamo</span><span class="r">-${formatCOP(liquidacion.abono_prestamo)}</span></div>
+    <div class="row total bold"><span>A PAGAR</span><span class="r">${formatCOP(
+      Number(liquidacion.total_pagar) - Number(liquidacion.abono_prestamo),
+    )}</span></div>`
+        : `<div class="row total bold"><span>A PAGAR</span><span class="r">${formatCOP(liquidacion.total_pagar)}</span></div>`
+    }
 
     <div class="firma small">Recibí conforme · ${esc(nombreEmpleado)}</div>
 `,

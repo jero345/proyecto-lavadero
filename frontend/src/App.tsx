@@ -19,6 +19,7 @@ const Inventario = lazy(() => import("@/pages/Inventario"));
 const Clientes = lazy(() => import("@/pages/Clientes"));
 const Servicios = lazy(() => import("@/pages/Servicios"));
 const Empleados = lazy(() => import("@/pages/Empleados"));
+const Prestamos = lazy(() => import("@/pages/Prestamos"));
 
 function Cargando() {
   return (
@@ -52,6 +53,7 @@ function App() {
               <Route path="movimientos" element={<Movimientos />} />
               <Route path="gastos" element={<Gastos />} />
               <Route path="empleados" element={<Empleados />} />
+              <Route path="prestamos" element={<Prestamos />} />
             </Route>
 
             {/* Solo super_admin: inventario (productos, ventas y su caja) */}

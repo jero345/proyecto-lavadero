@@ -11,6 +11,8 @@ export type MetodoPago = "efectivo" | "qr" | "transferencia";
 export type TipoMovCaja = "ingreso" | "egreso";
 export type TipoMovInventario = "entrada" | "salida";
 export type CajaTipo = "principal" | "inventario";
+/** De dónde salió el abono a un préstamo. */
+export type OrigenAbono = "manual" | "nomina";
 
 /** Lo que devuelve vender_productos: la venta recién hecha, lista para la tirilla. */
 export interface VentaRealizada {
@@ -198,6 +200,8 @@ export type Database = {
           cierre_id: string | null;
           /** true = fecha de otro día: solo historial, no entra a la caja abierta. */
           fuera_de_caja: boolean;
+          /** Venta de inventario que generó este ingreso. */
+          venta_grupo_id: string | null;
           created_by: string;
           created_at: string;
         };
@@ -211,6 +215,7 @@ export type Database = {
           orden_id?: string | null;
           cierre_id?: string | null;
           fuera_de_caja?: boolean;
+          venta_grupo_id?: string | null;
           created_by: string;
           created_at?: string;
         };
@@ -264,7 +269,7 @@ export type Database = {
           monto: number;
           fecha: string;
           metodo_pago: MetodoPago | null;
-          /** Egreso de caja de este gasto. null = no sale de la caja. */
+          /** Egreso de caja de este gasto (desde 0038 siempre lo tiene). */
           caja_movimiento_id: string | null;
           created_by: string;
           created_at: string;
@@ -355,6 +360,62 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["inventario_movimientos"]["Insert"]>;
         Relationships: [];
       };
+      prestamos: {
+        Row: {
+          id: string;
+          empleado_id: string;
+          monto: number;
+          fecha: string;
+          metodo_pago: MetodoPago;
+          concepto: string | null;
+          /** Egreso de caja con el que se entregó la plata. */
+          caja_movimiento_id: string | null;
+          created_by: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          empleado_id: string;
+          monto: number;
+          fecha?: string;
+          metodo_pago: MetodoPago;
+          concepto?: string | null;
+          caja_movimiento_id?: string | null;
+          created_by?: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["prestamos"]["Insert"]>;
+        Relationships: [];
+      };
+      prestamo_abonos: {
+        Row: {
+          id: string;
+          prestamo_id: string;
+          monto: number;
+          fecha: string;
+          /** null cuando el abono salió de la nómina (no entra plata al cajón). */
+          metodo_pago: MetodoPago | null;
+          origen: OrigenAbono;
+          liquidacion_id: string | null;
+          caja_movimiento_id: string | null;
+          created_by: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          prestamo_id: string;
+          monto: number;
+          fecha?: string;
+          metodo_pago?: MetodoPago | null;
+          origen?: OrigenAbono;
+          liquidacion_id?: string | null;
+          caja_movimiento_id?: string | null;
+          created_by?: string;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["prestamo_abonos"]["Insert"]>;
+        Relationships: [];
+      };
       nomina_liquidaciones: {
         Row: {
           id: string;
@@ -365,6 +426,8 @@ export type Database = {
           total_facturado: number;
           porcentaje: number;
           total_pagar: number;
+          /** Lo que se le descontó de sus préstamos (el egreso de caja es el neto). */
+          abono_prestamo: number;
           created_at: string;
         };
         Insert: {
@@ -376,6 +439,7 @@ export type Database = {
           total_facturado?: number;
           porcentaje?: number;
           total_pagar?: number;
+          abono_prestamo?: number;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["nomina_liquidaciones"]["Insert"]>;
@@ -419,6 +483,8 @@ export type Database = {
           p_fecha_inicio: string;
           p_fecha_fin: string;
           p_metodo_pago?: MetodoPago;
+          /** Cuánto descontarle de sus préstamos en esta liquidación. */
+          p_abono_prestamo?: number;
         };
         Returns: Database["public"]["Tables"]["nomina_liquidaciones"]["Row"];
       };
@@ -517,6 +583,52 @@ export type Database = {
         Args: { p_id: string };
         Returns: undefined;
       };
+      editar_venta: {
+        /** p_items = [{ producto_id, cantidad }] — el precio lo pone el servidor. */
+        Args: {
+          p_grupo_id: string;
+          p_items: { producto_id: string; cantidad: number }[];
+          p_metodo_pago: MetodoPago;
+        };
+        Returns: VentaRealizada;
+      };
+      eliminar_venta: {
+        Args: { p_grupo_id: string };
+        Returns: undefined;
+      };
+      guardar_prestamo: {
+        /** p_id null = préstamo nuevo. */
+        Args: {
+          p_id: string | null;
+          p_empleado_id: string;
+          p_monto: number;
+          p_fecha: string;
+          p_metodo_pago: MetodoPago;
+          p_concepto?: string | null;
+        };
+        Returns: Database["public"]["Tables"]["prestamos"]["Row"];
+      };
+      eliminar_prestamo: {
+        Args: { p_id: string };
+        Returns: undefined;
+      };
+      abonar_prestamo: {
+        Args: {
+          p_prestamo_id: string;
+          p_monto: number;
+          p_fecha: string;
+          p_metodo_pago: MetodoPago;
+        };
+        Returns: Database["public"]["Tables"]["prestamo_abonos"]["Row"];
+      };
+      eliminar_abono: {
+        Args: { p_id: string };
+        Returns: undefined;
+      };
+      saldo_prestamos_empleado: {
+        Args: { p_empleado_id: string };
+        Returns: number;
+      };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
@@ -539,3 +651,5 @@ export type Producto = Database["public"]["Tables"]["productos"]["Row"];
 export type VentaProducto = Database["public"]["Tables"]["ventas_productos"]["Row"];
 export type InventarioMovimiento = Database["public"]["Tables"]["inventario_movimientos"]["Row"];
 export type NominaLiquidacion = Database["public"]["Tables"]["nomina_liquidaciones"]["Row"];
+export type Prestamo = Database["public"]["Tables"]["prestamos"]["Row"];
+export type PrestamoAbono = Database["public"]["Tables"]["prestamo_abonos"]["Row"];

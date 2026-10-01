@@ -134,10 +134,10 @@ export default function Gastos() {
         <div>
           <h2 className="text-lg font-semibold">Gastos fijos</h2>
           <p className="text-xs text-muted-foreground">
-            Arriendo y pago de servicios. Cada pago decide si{" "}
-            <strong>se descuenta en el cierre de caja</strong> (no baja el total
-            del día, pero sí el general del cierre) o si queda solo en este
-            registro.
+            Arriendo y pago de servicios. Todo pago registrado acá{" "}
+            <strong>se descuenta en el cierre de caja</strong>: no baja el total
+            del día (esa plata no sale del cajón del turno), pero sí resta del
+            total general del cierre.
           </p>
         </div>
         <Button onClick={() => setEditando("nuevo")}>
@@ -309,38 +309,30 @@ function GastoDialog({
   const [concepto, setConcepto] = useState(gasto?.concepto ?? "");
   const [monto, setMonto] = useState(gasto ? String(gasto.monto) : "");
   const [fecha, setFecha] = useState(gasto?.fecha ?? hoyISO());
-  // "" = sin especificar (la columna admite null).
-  const [metodo, setMetodo] = useState<MetodoPago | "">(gasto?.metodo_pago ?? "");
-  // Un gasto sale de la caja cuando tiene su egreso atado. Los nuevos vienen
-  // marcados: lo normal es que el arriendo y los servicios se paguen del local.
-  const [afectaCaja, setAfectaCaja] = useState(
-    gasto ? gasto.caja_movimiento_id != null : true,
-  );
+  // El gasto SIEMPRE sale de la caja (mig. 0038), así que hay que decir con qué
+  // se pagó. Los gastos viejos sin método quedaban en efectivo.
+  const [metodo, setMetodo] = useState<MetodoPago>(gasto?.metodo_pago ?? "efectivo");
 
   const guardar = useMutation({
     mutationFn: async () => {
       const valor = Number(monto);
       if (!Number.isFinite(valor) || valor <= 0) throw new Error("Monto inválido");
       if (!fecha) throw new Error("La fecha es obligatoria");
-      if (afectaCaja && metodo === "") {
-        throw new Error("Elige el método de pago para descontarlo de la caja");
-      }
 
-      // El servidor crea, actualiza o borra el egreso de caja según corresponda.
+      // El servidor crea o actualiza el egreso de caja del gasto.
       const { error } = await supabase.rpc("guardar_gasto_fijo", {
         p_id: gasto?.id ?? null,
         p_categoria: cat,
         p_concepto: concepto.trim() || null,
         p_monto: valor,
         p_fecha: fecha,
-        p_metodo_pago: metodo === "" ? null : metodo,
-        p_afecta_caja: afectaCaja,
+        p_metodo_pago: metodo,
       });
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success(gasto ? "Gasto actualizado" : "Gasto registrado", {
-        description: afectaCaja ? "Se descontará en el cierre de caja" : undefined,
+        description: "Se descontará en el cierre de caja",
       });
       queryClient.invalidateQueries({ queryKey: ["gastos"] });
       queryClient.invalidateQueries({ queryKey: ["caja"] });
@@ -410,16 +402,12 @@ function GastoDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>Método de pago{afectaCaja ? "" : " (opcional)"}</Label>
-            <Select
-              value={metodo === "" ? "ninguno" : metodo}
-              onValueChange={(v) => setMetodo(v === "ninguno" ? "" : (v as MetodoPago))}
-            >
+            <Label>Método de pago</Label>
+            <Select value={metodo} onValueChange={(v) => setMetodo(v as MetodoPago)}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ninguno">Sin especificar</SelectItem>
                 {METODOS_PAGO.map((m) => (
                   <SelectItem key={m.value} value={m.value}>
                     {m.label}
@@ -429,24 +417,13 @@ function GastoDialog({
             </Select>
           </div>
 
-          {/* Con esto marcado, el pago sale de la caja principal como egreso y
-              entra en el cierre del día (control del arriendo y los servicios). */}
-          <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3">
-            <input
-              type="checkbox"
-              className="mt-0.5 h-4 w-4 accent-primary"
-              checked={afectaCaja}
-              onChange={(e) => setAfectaCaja(e.target.checked)}
-            />
-            <span className="text-sm">
-              <span className="font-medium">Descontar en el cierre de caja</span>
-              <span className="mt-0.5 block text-xs text-muted-foreground">
-                {afectaCaja
-                  ? "No baja el total del día en Caja (esa plata no sale del cajón del turno): se descuenta al cerrar, en la columna Gastos fijos del cierre, y resta del total general."
-                  : "Queda solo en este registro de gastos (por ejemplo, si se paga desde el banco)."}
-              </span>
-            </span>
-          </label>
+          {/* El gasto siempre sale de la caja principal como egreso (mig. 0038). */}
+          <p className="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
+            Este pago queda como egreso de la caja principal. No baja el total del
+            día en Caja (esa plata no sale del cajón del turno): se descuenta al
+            cerrar, en la columna <strong>Gastos fijos</strong> del cierre, y resta
+            del <strong>total general</strong>, aunque el pago tenga fecha de otro día.
+          </p>
         </div>
         <DialogFooter>
           <Button onClick={() => guardar.mutate()} disabled={guardar.isPending}>

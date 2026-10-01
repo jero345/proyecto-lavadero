@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, Loader2, Pencil, Search } from "lucide-react";
+import { CalendarClock, Loader2, Pencil, RotateCcw, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -58,6 +58,11 @@ const LABEL_CAJA: Record<CajaTipo, string> = {
   inventario: "Inventario",
 };
 
+/** Fecha local en formato YYYY-MM-DD, para comparar con los <input type="date">. */
+function fechaLocal(iso: string): string {
+  return aInputFechaHora(iso).slice(0, 10);
+}
+
 export default function Movimientos() {
   const { isStaff, isSuperAdmin } = useAuth();
   const [busqueda, setBusqueda] = useState("");
@@ -66,6 +71,8 @@ export default function Movimientos() {
   const [caja, setCaja] = useState<FiltroCaja>("principal");
   const [tipo, setTipo] = useState<FiltroTipo>("todos");
   const [estado, setEstado] = useState<FiltroEstado>("todos");
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
   const [editando, setEditando] = useState<CajaMovimiento | null>(null);
 
   const { data: movimientos = [], isLoading } = useQuery({
@@ -90,19 +97,20 @@ export default function Movimientos() {
       if (estado === "cerrados" && m.cierre_id == null) return false;
       if (estado === "fuera" && !m.fuera_de_caja) return false;
       if (q && !(m.concepto ?? "").toLowerCase().includes(q)) return false;
+      const dia = fechaLocal(m.created_at);
+      if (desde && dia < desde) return false;
+      if (hasta && dia > hasta) return false;
       return true;
     });
-  }, [movimientos, busqueda, caja, tipo, estado]);
+  }, [movimientos, busqueda, caja, tipo, estado, desde, hasta]);
 
-  const totales = useMemo(() => {
-    let ingresos = 0;
-    let egresos = 0;
-    for (const m of filtrados) {
-      if (m.tipo === "egreso") egresos += Number(m.monto);
-      else ingresos += Number(m.monto);
-    }
-    return { ingresos, egresos, neto: ingresos - egresos };
-  }, [filtrados]);
+  const hayFiltros =
+    busqueda !== "" ||
+    caja !== "principal" ||
+    tipo !== "todos" ||
+    estado !== "todos" ||
+    desde !== "" ||
+    hasta !== "";
 
   return (
     <div className="space-y-4">
@@ -116,23 +124,16 @@ export default function Movimientos() {
         {isStaff && <NuevoMovimientoDialog triggerLabel="Nuevo movimiento" />}
       </div>
 
-      {/* Totales de lo que se está viendo (según filtros) */}
+      {/* Cuántos movimientos se están viendo (según filtros). Los totales en
+          plata viven en Caja y en Cierres, acá solo se listan. */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <TotalTile titulo="Movimientos" texto={String(filtrados.length)} />
         <TotalTile
-          titulo="Ingresos"
-          texto={formatCOP(totales.ingresos)}
-          className="text-emerald-600"
-        />
-        <TotalTile
-          titulo="Egresos"
-          texto={`${totales.egresos > 0 ? "-" : ""}${formatCOP(totales.egresos)}`}
-          className="text-destructive"
-        />
-        <TotalTile
-          titulo="Neto"
-          texto={formatCOP(totales.neto)}
-          className={totales.neto < 0 ? "text-destructive" : "text-primary"}
+          titulo={
+            filtrados.length === movimientos.length
+              ? "Movimientos"
+              : `Movimientos (de ${movimientos.length})`
+          }
+          texto={String(filtrados.length)}
         />
       </div>
 
@@ -178,6 +179,46 @@ export default function Movimientos() {
             <SelectItem value="fuera">Fuera de caja</SelectItem>
           </SelectContent>
         </Select>
+        <div className="flex items-center gap-2">
+          <Label htmlFor="m-desde" className="text-xs text-muted-foreground">
+            Desde
+          </Label>
+          <Input
+            id="m-desde"
+            type="date"
+            className="w-40"
+            value={desde}
+            onChange={(e) => setDesde(e.target.value)}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Label htmlFor="m-hasta" className="text-xs text-muted-foreground">
+            Hasta
+          </Label>
+          <Input
+            id="m-hasta"
+            type="date"
+            className="w-40"
+            value={hasta}
+            onChange={(e) => setHasta(e.target.value)}
+          />
+        </div>
+        {hayFiltros && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setBusqueda("");
+              setCaja("principal");
+              setTipo("todos");
+              setEstado("todos");
+              setDesde("");
+              setHasta("");
+            }}
+          >
+            <RotateCcw className="h-4 w-4" />
+            Limpiar
+          </Button>
+        )}
       </div>
 
       <Card>

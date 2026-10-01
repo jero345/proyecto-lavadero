@@ -74,6 +74,8 @@ export default function Nomina() {
   const [inicio, setInicio] = useState(primerDiaDelMes());
   const [fin, setFin] = useState(hoyISO());
   const [metodo, setMetodo] = useState<MetodoPago>("efectivo");
+  // Cuánto descontarle de sus préstamos en esta liquidación ("" = nada).
+  const [abono, setAbono] = useState("");
   // Liquidación abierta: muestra qué servicios hizo el empleado en ese periodo.
   const [abierta, setAbierta] = useState<string | null>(null);
   // Consulta de un periodo SIN liquidar (solo para mirar el trabajo hecho).
@@ -99,6 +101,20 @@ export default function Nomina() {
     for (const e of todosLosEmpleados) m.set(e.id, e.nombre);
     return m;
   }, [todosLosEmpleados]);
+
+  // Lo que debe en préstamos el trabajador elegido. La RPC es del servidor, así
+  // que no depende de que el usuario pueda leer la tabla de préstamos.
+  const { data: saldoPrestamo = 0 } = useQuery({
+    queryKey: ["prestamos", "saldo", empleadoId],
+    enabled: isStaff && empleadoId !== "",
+    queryFn: async (): Promise<number> => {
+      const { data, error } = await supabase.rpc("saldo_prestamos_empleado", {
+        p_empleado_id: empleadoId,
+      });
+      if (error) throw error;
+      return Number(data) || 0;
+    },
+  });
 
   const { data: liquidaciones = [] } = useQuery({
     queryKey: ["nomina", "liquidaciones"],
@@ -126,7 +142,11 @@ export default function Nomina() {
         id,
         nombre: nombrePorId.get(id) ?? "Empleado eliminado",
         liquidaciones: ls,
-        totalPagado: ls.reduce((acc, l) => acc + Number(l.total_pagar), 0),
+        // Lo pagado de verdad: la comisión menos lo que se le descontó de préstamos.
+        totalPagado: ls.reduce(
+          (acc, l) => acc + Number(l.total_pagar) - Number(l.abono_prestamo),
+          0,
+        ),
         servicios: ls.reduce((acc, l) => acc + Number(l.total_servicios), 0),
       }))
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
@@ -161,24 +181,37 @@ export default function Nomina() {
   const liquidar = useMutation({
     mutationFn: async () => {
       if (!empleadoId) throw new Error("Selecciona un empleado");
+      const descuento = Number(abono) || 0;
+      if (descuento < 0) throw new Error("El descuento no puede ser negativo");
+      if (descuento > saldoPrestamo) {
+        throw new Error(`El descuento supera lo que debe (${formatCOP(saldoPrestamo)})`);
+      }
       const { data, error } = await supabase.rpc("liquidar_nomina", {
         p_empleado_id: empleadoId,
         p_fecha_inicio: inicio,
         p_fecha_fin: fin,
         p_metodo_pago: metodo,
+        p_abono_prestamo: descuento,
       });
       if (error) throw error;
       return data as NominaLiquidacion;
     },
     onSuccess: (l) => {
+      const neto = Number(l.total_pagar) - Number(l.abono_prestamo);
       toast.success("Liquidación generada", {
         description:
           l.total_pagar > 0
-            ? `A pagar ${formatCOP(l.total_pagar)} · egreso registrado en caja`
+            ? Number(l.abono_prestamo) > 0
+              ? `A pagar ${formatCOP(neto)} (se le descontaron ${formatCOP(
+                  l.abono_prestamo,
+                )} de préstamo)`
+              : `A pagar ${formatCOP(l.total_pagar)} · egreso registrado en caja`
             : `${l.total_servicios} servicios · sin monto a pagar`,
       });
-      // La liquidación mete un egreso en la caja principal.
+      setAbono("");
+      // La liquidación mete un egreso en la caja principal y puede abonar un préstamo.
       queryClient.invalidateQueries({ queryKey: ["nomina"] });
+      queryClient.invalidateQueries({ queryKey: ["prestamos"] });
       queryClient.invalidateQueries({ queryKey: ["caja"] });
       // El tablero de la dashboard se limpia con el nuevo cierre de nómina.
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
@@ -284,6 +317,44 @@ export default function Nomina() {
               </Button>
             </div>
           </div>
+          {/* Descuento de préstamo: solo si el trabajador debe algo. */}
+          {isStaff && saldoPrestamo > 0 && (
+            <div className="mt-4 flex flex-wrap items-end gap-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-amber-900">
+                  Debe {formatCOP(saldoPrestamo)} en préstamos
+                </p>
+                <p className="text-xs text-amber-800">
+                  Lo que descuentes acá se abona a sus préstamos y de la caja solo sale
+                  el resto. Déjalo en cero si no quieres descontarle nada.
+                </p>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="abono" className="text-xs">
+                  Descontar
+                </Label>
+                <Input
+                  id="abono"
+                  type="number"
+                  min={0}
+                  max={saldoPrestamo}
+                  placeholder="0"
+                  className="w-36 bg-background"
+                  value={abono}
+                  onChange={(e) => setAbono(e.target.value)}
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-background"
+                onClick={() => setAbono(String(saldoPrestamo))}
+              >
+                Todo
+              </Button>
+            </div>
+          )}
+
           {yaLiquidadoHoy ? (
             <p className="mt-3 text-xs font-medium text-amber-700">
               A este trabajador ya se le liquidó hoy. Solo se puede liquidar una vez
@@ -294,8 +365,8 @@ export default function Nomina() {
               <strong>Sacar reporte</strong> solo muestra qué hizo el trabajador entre
               las dos fechas: no liquida ni toca la caja. Al{" "}
               <strong>liquidar</strong>, en cambio, el monto a pagar se registra como
-              egreso en la caja principal con el método elegido, y cada trabajador se
-              liquida una sola vez al día.
+              egreso en la caja principal con el método elegido (menos lo que se le
+              descuente de préstamos), y cada trabajador se liquida una sola vez al día.
             </p>
           )}
         </CardContent>
@@ -413,7 +484,15 @@ export default function Nomina() {
                               </TableCell>
                               <TableCell className="text-right">{l.porcentaje}%</TableCell>
                               <TableCell className="text-right font-semibold text-primary">
-                                {formatCOP(l.total_pagar)}
+                                {formatCOP(
+                                  Number(l.total_pagar) - Number(l.abono_prestamo),
+                                )}
+                                {Number(l.abono_prestamo) > 0 && (
+                                  <span className="block text-xs font-normal text-muted-foreground">
+                                    {formatCOP(l.total_pagar)} − {formatCOP(l.abono_prestamo)}{" "}
+                                    de préstamo
+                                  </span>
+                                )}
                               </TableCell>
                               <TableCell className="text-right">
                                 <Button

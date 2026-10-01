@@ -142,6 +142,8 @@ export default function Inventario() {
   const queryClient = useQueryClient();
   const [editando, setEditando] = useState<Producto | null>(null);
   const [eliminando, setEliminando] = useState<Producto | null>(null);
+  const [editandoVenta, setEditandoVenta] = useState<VentaAgrupada | null>(null);
+  const [eliminandoVenta, setEliminandoVenta] = useState<VentaAgrupada | null>(null);
   // Los desactivados se esconden por defecto para no estorbar al vender.
   const [verInactivos, setVerInactivos] = useState(false);
   // Carrito: se venden varios productos juntos y sale una sola factura.
@@ -304,6 +306,25 @@ export default function Inventario() {
     },
     onError: (e: unknown) =>
       toast.error("No se pudo eliminar", {
+        description: e instanceof Error ? e.message : "",
+      }),
+  });
+
+  // Borrar una venta: el servidor devuelve el stock y quita su ingreso de caja.
+  const eliminarVenta = useMutation({
+    mutationFn: async (venta: VentaAgrupada) => {
+      const { error } = await supabase.rpc("eliminar_venta", { p_grupo_id: venta.id });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Venta eliminada", {
+        description: "Se devolvió el stock y se quitó de la caja de inventario",
+      });
+      setEliminandoVenta(null);
+      invalidar();
+    },
+    onError: (e: unknown) =>
+      toast.error("No se pudo eliminar la venta", {
         description: e instanceof Error ? e.message : "",
       }),
   });
@@ -534,7 +555,7 @@ export default function Inventario() {
                   <TableHead className="text-right">Cantidad</TableHead>
                   <TableHead>Método</TableHead>
                   <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="text-right">Recibo</TableHead>
+                  <TableHead className="text-right">Acciones</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -564,22 +585,47 @@ export default function Inventario() {
                       {formatCOP(v.total)}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        title="Imprimir recibo"
-                        onClick={() =>
-                          imprimirReciboVenta({
-                            id: v.id,
-                            fecha: v.fecha,
-                            items: v.lineas,
-                            total: v.total,
-                            metodo: v.metodo,
-                          })
-                        }
-                      >
-                        <Printer className="h-3.5 w-3.5" />
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title="Imprimir recibo"
+                          onClick={() =>
+                            imprimirReciboVenta({
+                              id: v.id,
+                              fecha: v.fecha,
+                              items: v.lineas,
+                              total: v.total,
+                              metodo: v.metodo,
+                            })
+                          }
+                        >
+                          <Printer className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          title={
+                            v.lineas.some((l) => l.producto_id == null)
+                              ? "Tiene productos que ya no existen: solo se puede eliminar"
+                              : "Corregir la venta"
+                          }
+                          disabled={v.lineas.some((l) => l.producto_id == null)}
+                          onClick={() => setEditandoVenta(v)}
+                        >
+                          <SquarePen className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          title="Eliminar la venta"
+                          disabled={eliminarVenta.isPending}
+                          onClick={() => setEliminandoVenta(v)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -621,6 +667,53 @@ export default function Inventario() {
           </AlertDialogContent>
         )}
       </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(eliminandoVenta)}
+        onOpenChange={(o) => !o && !eliminarVenta.isPending && setEliminandoVenta(null)}
+      >
+        {eliminandoVenta && (
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                ¿Eliminar la venta de {formatCOP(eliminandoVenta.total)}?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Se devuelve el stock de{" "}
+                {eliminandoVenta.lineas.map((l) => l.producto_nombre).join(", ")} y se
+                quita su ingreso de la caja de inventario. Si esa plata ya estaba en un
+                cierre, el cierre se vuelve a calcular.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={eliminarVenta.isPending}>
+                Cancelar
+              </AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                disabled={eliminarVenta.isPending}
+                onClick={(e) => {
+                  e.preventDefault();
+                  eliminarVenta.mutate(eliminandoVenta);
+                }}
+              >
+                {eliminarVenta.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Sí, eliminar
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        )}
+      </AlertDialog>
+
+      {editandoVenta && (
+        <EditarVentaDialog
+          key={editandoVenta.id}
+          venta={editandoVenta}
+          productos={productos}
+          onClose={() => setEditandoVenta(null)}
+          onGuardado={invalidar}
+        />
+      )}
 
       <Dialog open={Boolean(editando)} onOpenChange={(o) => !o && setEditando(null)}>
         {editando && (
@@ -832,6 +925,178 @@ function EditarProducto({
         </Button>
       </DialogFooter>
     </DialogContent>
+  );
+}
+
+/**
+ * Corregir una venta ya hecha: cambia las cantidades, quita líneas o cambia el
+ * método de pago. El servidor (editar_venta) devuelve el stock viejo, aplica el
+ * nuevo con los precios ACTUALES del catálogo y ajusta el ingreso de la caja de
+ * inventario (recalculando el cierre si esa plata ya estaba cerrada).
+ */
+function EditarVentaDialog({
+  venta,
+  productos,
+  onClose,
+  onGuardado,
+}: {
+  venta: VentaAgrupada;
+  productos: Producto[];
+  onClose: () => void;
+  onGuardado: () => void;
+}) {
+  // Cada línea editable: el producto del catálogo y la cantidad.
+  const [lineas, setLineas] = useState(() =>
+    venta.lineas.map((l) => ({
+      id: l.id,
+      productoId: l.producto_id as string,
+      nombre: l.producto_nombre,
+      cantidad: Number(l.cantidad),
+      cantidadOriginal: Number(l.cantidad),
+    })),
+  );
+  const [metodo, setMetodo] = useState<MetodoPago>(venta.metodo);
+
+  const productoPorId = useMemo(() => {
+    const m = new Map<string, Producto>();
+    for (const p of productos) m.set(p.id, p);
+    return m;
+  }, [productos]);
+
+  // El stock que de verdad hay disponible para esta línea: lo que queda en
+  // bodega más lo que esta misma venta ya había descontado.
+  const topeDe = (productoId: string, cantidadOriginal: number) =>
+    (Number(productoPorId.get(productoId)?.stock_actual) || 0) + cantidadOriginal;
+
+  const total = lineas.reduce(
+    (acc, l) => acc + (Number(productoPorId.get(l.productoId)?.precio) || 0) * l.cantidad,
+    0,
+  );
+
+  const guardar = useMutation({
+    mutationFn: async () => {
+      if (lineas.length === 0) {
+        throw new Error("La venta no puede quedar vacía: elimínala en vez de vaciarla");
+      }
+      for (const l of lineas) {
+        if (!Number.isFinite(l.cantidad) || l.cantidad <= 0) {
+          throw new Error(`Cantidad inválida en ${l.nombre}`);
+        }
+        if (l.cantidad > topeDe(l.productoId, l.cantidadOriginal)) {
+          throw new Error(`No hay suficiente stock de ${l.nombre}`);
+        }
+      }
+      const { error } = await supabase.rpc("editar_venta", {
+        p_grupo_id: venta.id,
+        p_items: lineas.map((l) => ({ producto_id: l.productoId, cantidad: l.cantidad })),
+        p_metodo_pago: metodo,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Venta corregida");
+      onGuardado();
+      onClose();
+    },
+    onError: (e: unknown) =>
+      toast.error("No se pudo corregir la venta", {
+        description: e instanceof Error ? e.message : "",
+      }),
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Corregir venta del {formatFechaHora(venta.fecha)}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="divide-y rounded-lg border">
+            {lineas.map((l) => {
+              const precio = Number(productoPorId.get(l.productoId)?.precio) || 0;
+              const tope = topeDe(l.productoId, l.cantidadOriginal);
+              return (
+                <div key={l.id} className="flex flex-wrap items-center gap-3 p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">{l.nombre}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatCOP(precio)} c/u · hasta {tope}
+                    </p>
+                  </div>
+                  <Input
+                    className="h-9 w-20 text-center"
+                    type="number"
+                    min={1}
+                    max={tope}
+                    value={l.cantidad}
+                    onChange={(e) =>
+                      setLineas((prev) =>
+                        prev.map((it) =>
+                          it.id === l.id
+                            ? { ...it, cantidad: Number(e.target.value) }
+                            : it,
+                        ),
+                      )
+                    }
+                  />
+                  <span className="w-24 text-right font-semibold">
+                    {formatCOP(precio * l.cantidad)}
+                  </span>
+                  <IconAction
+                    title="Quitar de la venta"
+                    className="text-rose-600 hover:bg-rose-100 hover:text-rose-700"
+                    onClick={() =>
+                      setLineas((prev) => prev.filter((it) => it.id !== l.id))
+                    }
+                  >
+                    <X className="h-4 w-4" />
+                  </IconAction>
+                </div>
+              );
+            })}
+            {lineas.length === 0 && (
+              <p className="p-3 text-sm text-muted-foreground">
+                No queda ningún producto. Vuelve a abrir la venta o elimínala.
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="space-y-2">
+              <Label>Método de pago</Label>
+              <Select value={metodo} onValueChange={(v) => setMetodo(v as MetodoPago)}>
+                <SelectTrigger className="w-48">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {METODOS_PAGO.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">Nuevo total</p>
+              <p className="text-2xl font-bold">{formatCOP(total)}</p>
+            </div>
+          </div>
+
+          <p className="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
+            Los precios se vuelven a tomar del catálogo, así que el total puede
+            cambiar si el producto subió de precio. El stock se ajusta solo y el
+            ingreso en la caja de inventario queda por el nuevo total.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button onClick={() => guardar.mutate()} disabled={guardar.isPending}>
+            {guardar.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Guardar cambios
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
