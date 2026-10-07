@@ -255,19 +255,25 @@ Todas son `SECURITY DEFINER`, atómicas e idempotentes en su definición
 ### Nómina
 | Función | Qué hace |
 |---|---|
-| `liquidar_nomina(empleado_id, desde, hasta, metodo_pago, abono_prestamo)` | Suma comisiones del rango sobre el **total real de la orden** (incluye el override), crea la liquidación y registra el pago como egreso en la caja `principal`. Con `abono_prestamo` abona los préstamos del trabajador (del más viejo al más nuevo) y el egreso se registra por el **neto** (migración 0039) |
+| `liquidar_nomina(empleado_id, desde, hasta, metodo_pago)` | Suma comisiones del rango sobre el **total real de la orden** (incluye el override), crea la liquidación y registra el pago **completo** como egreso en la caja `principal`. Los préstamos no entran acá (migración 0042) |
 | `eliminar_liquidacion(id)` | Staff. Borra también su egreso de nómina **si sigue abierto**; si ya está cerrado, conserva el movimiento (no rompe el cuadre) pero borra la liquidación |
 | `detalle_nomina(empleado, desde, hasta)` | Reconstruye qué órdenes y servicios atendió el empleado en el rango (detalle de una liquidación) |
 | `empleados_pendientes_liquidar()` | Trabajadores con órdenes de hoy que aún no tienen liquidación de hoy. Alimenta el aviso "falta liquidar" |
 
-### Préstamos a trabajadores (migración 0039)
+### Préstamos a trabajadores (migración 0039, corregida por la 0042)
+**No tocan la caja ni la nómina:** son un control aparte de quién debe cuánto.
 | Función | Qué hace |
 |---|---|
-| `guardar_prestamo(id, empleado, monto, fecha, metodo, concepto)` | Alta/edición de un préstamo + su **egreso** en la caja `principal`. No deja cambiar monto/método si ese egreso ya está en un cierre |
-| `abonar_prestamo(prestamo, monto, fecha, metodo)` | Abono en caja: **ingreso** en la caja `principal`. No deja pasarse del saldo |
-| `eliminar_abono(id)` | Borra un abono manual (y su ingreso si sigue abierto). Los abonos hechos desde nómina solo se deshacen borrando la liquidación |
-| `eliminar_prestamo(id)` | Borra el préstamo y sus abonos; los movimientos de caja se van solo si siguen abiertos |
+| `guardar_prestamo(id, empleado, monto, fecha, metodo, concepto)` | Alta/edición de un préstamo. Solo registro |
+| `abonar_prestamo(prestamo, monto, fecha, metodo)` | Abono. Solo registro; no deja pasarse del saldo |
+| `eliminar_abono(id)` / `eliminar_prestamo(id)` | Borran el abono o el préstamo (con sus abonos) |
 | `saldo_prestamo(id)` / `saldo_prestamos_empleado(empleado)` | Préstamos menos abonos (lo que debe) |
+
+### Clientes (migración 0043)
+| Función | Qué hace |
+|---|---|
+| `buscar_clientes(texto, limite)` | Busca por placa, nombre o teléfono comparando **normalizado** (sin espacios ni mayúsculas). Sin texto, los últimos creados. **La app nunca trae la lista completa:** la API corta en 1.000 filas y los clientes de más no aparecían |
+| `buscar_cliente_duplicado(placa, nombre, excluir)` | El cliente que ya existe con esa placa (o ese nombre si no hay placa). Es la regla de los índices únicos de la 0018, preguntada antes de guardar |
 
 ### Inventario
 | Función | Qué hace |
@@ -330,9 +336,9 @@ cada función RPC). El frontend solo oculta; la base es la que decide.
 | `/cierres` | `Cierres.tsx` | staff | Historial de cierres con desglose; el super admin edita el total general |
 | `/movimientos` | `Movimientos.tsx` | staff | Todos los movimientos de ambas cajas; alta manual con fecha libre, editar, eliminar. Filtros de caja, tipo, estado, concepto y **rango de fechas**; solo muestra cuántos movimientos hay, sin totales en plata |
 | `/gastos` | `Gastos.tsx` | staff | Gastos fijos (arriendo, servicios). **Siempre** salen como egreso de la caja principal y restan del total general del cierre (migración 0038) |
-| `/prestamos` | `Prestamos.tsx` | staff | Préstamos a trabajadores: préstamo (egreso de caja), abonos (ingreso) y saldo por trabajador. El descuento en nómina se hace desde `/nomina` |
+| `/prestamos` | `Prestamos.tsx` | staff | Préstamos a trabajadores: préstamos, abonos y saldo por trabajador. **Control aparte: no mueve la caja ni la nómina** (migración 0042) |
 | `/empleados` | `Empleados.tsx` | staff | Roster: alta/edición, % de comisión, fecha de ingreso, observaciones, activar/desactivar |
-| `/nomina` | `Nomina.tsx` | todos | Liquidar por empleado y rango de fechas + historial de liquidaciones. Si el trabajador debe préstamos, el staff puede descontarle un abono del pago |
+| `/nomina` | `Nomina.tsx` | todos | Liquidar por empleado y rango de fechas + historial de liquidaciones |
 | `/inventario` | `Inventario.tsx` | **super_admin** | Productos con stock mínimo, entradas/salidas, activar/desactivar y eliminar, **venta de productos con recibo**, ventas recientes (editables y eliminables) y caja de inventario |
 | `/clientes` | `Clientes.tsx` | todos | CRUD con validación anti-duplicados, búsqueda por placa, llamada y WhatsApp directos |
 | `/servicios` | `Servicios.tsx` | ver todos / editar staff | Catálogo de servicios + catálogo de tipos de vehículo |
@@ -370,10 +376,11 @@ Estas son las que un desarrollador nuevo rompería sin querer:
    pero no a la caja abierta. El "hoy" se evalúa en **hora de Colombia**.
 8. **Al liquidar, una orden completa cuenta como 1 servicio** (antes contaba cada
    ítem, migración 0024).
-8c. **El abono de préstamo descontado en nómina no genera movimiento de caja**
-   (migración 0039): esa plata nunca sale del cajón, por eso el egreso de la
-   liquidación se registra por el neto (`total_pagar − abono_prestamo`). Un abono
-   cobrado aparte sí entra como ingreso.
+8c. **Los préstamos a trabajadores no son plata del negocio** (migración 0042):
+   ni prestar ni abonar mueven la caja, y la nómina se liquida completa. Es un
+   cuaderno de control. (La 0039 los había metido en la caja; se revirtió.)
+8d. **Los clientes nunca se traen en lista completa** (migración 0043): la API
+   corta en 1.000 filas. Se busca con `buscar_clientes` en el servidor.
 8b. **A cada trabajador se le liquida una sola vez al día** (migración 0032). El tope
    es por día de liquidación en hora Colombia, no por el rango liquidado: se puede
    liquidar cualquier periodo, pero una sola vez por jornada. Evita pagar dos veces

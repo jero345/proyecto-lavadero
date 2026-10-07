@@ -51,10 +51,9 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { formatCOP, formatFecha } from "@/lib/format";
-import { LABEL_METODO_PAGO, METODOS_PAGO } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
 import { useEmpleados } from "@/hooks/queries";
-import type { MetodoPago, Prestamo, PrestamoAbono } from "@/types/database.types";
+import type { Prestamo, PrestamoAbono } from "@/types/database.types";
 
 /** Fecha local YYYY-MM-DD (no usar toISOString: en Colombia salta de día). */
 function hoyISO() {
@@ -78,10 +77,8 @@ interface Carpeta {
  * Préstamos a trabajadores: lo que se les prestó, lo que han abonado y lo que
  * queda debiendo.
  *
- * El dinero: prestar sale como EGRESO de la caja principal y un abono en caja
- * entra como INGRESO. El abono que se descuenta al liquidar la nómina NO genera
- * movimiento: esa plata nunca sale del cajón, el egreso de la liquidación ya se
- * registra por el neto (pago menos descuento).
+ * Es un control aparte, como un cuaderno: NO mueve la caja del negocio ni la
+ * nómina (migración 0042). Ni prestar ni abonar generan movimientos.
  */
 export default function Prestamos() {
   const queryClient = useQueryClient();
@@ -131,8 +128,6 @@ export default function Prestamos() {
 
   const invalidar = () => {
     queryClient.invalidateQueries({ queryKey: ["prestamos"] });
-    queryClient.invalidateQueries({ queryKey: ["caja"] });
-    queryClient.invalidateQueries({ queryKey: ["nomina"] });
   };
 
   const nombrePorId = useMemo(() => {
@@ -225,9 +220,8 @@ export default function Prestamos() {
         <div>
           <h2 className="text-lg font-semibold">Préstamos a trabajadores</h2>
           <p className="text-xs text-muted-foreground">
-            La plata prestada sale como egreso de la caja principal. Los abonos en
-            caja entran como ingreso; los que se descuentan al liquidar la nómina no
-            tocan la caja (el pago ya se registra por el neto).
+            Control de quién debe cuánto. <strong>No toca la caja</strong> ni la
+            nómina: es solo el registro de los préstamos y sus abonos.
           </p>
         </div>
         <Button onClick={() => setNuevo(true)}>
@@ -324,7 +318,6 @@ export default function Prestamos() {
                           <TableHead className="w-10" />
                           <TableHead>Fecha</TableHead>
                           <TableHead>Concepto</TableHead>
-                          <TableHead>Entregado con</TableHead>
                           <TableHead className="text-right">Préstamo</TableHead>
                           <TableHead className="text-right">Abonado</TableHead>
                           <TableHead className="text-right">Saldo</TableHead>
@@ -357,9 +350,6 @@ export default function Prestamos() {
                                 {formatFecha(p.fecha)}
                               </TableCell>
                               <TableCell>{p.concepto || "—"}</TableCell>
-                              <TableCell className="text-muted-foreground">
-                                {LABEL_METODO_PAGO[p.metodo_pago]}
-                              </TableCell>
                               <TableCell className="text-right font-medium">
                                 {formatCOP(p.monto)}
                               </TableCell>
@@ -415,9 +405,8 @@ export default function Prestamos() {
                                           ¿Eliminar el préstamo de {emp.nombre}?
                                         </AlertDialogTitle>
                                         <AlertDialogDescription>
-                                          Se borran también sus abonos. El egreso y los
-                                          ingresos en la caja se eliminan solo si todavía
-                                          no entraron en un cierre.
+                                          Se borran también sus abonos. No afecta la
+                                          caja: los préstamos son un registro aparte.
                                         </AlertDialogDescription>
                                       </AlertDialogHeader>
                                       <AlertDialogFooter>
@@ -436,7 +425,7 @@ export default function Prestamos() {
                             </TableRow>,
                             abiertoEste && (
                               <TableRow key={`${p.id}-abonos`} className="hover:bg-transparent">
-                                <TableCell colSpan={8} className="bg-muted/30 p-4">
+                                <TableCell colSpan={7} className="bg-muted/30 p-4">
                                   {lista.length === 0 ? (
                                     <p className="text-sm text-muted-foreground">
                                       Todavía no ha abonado nada.
@@ -454,15 +443,11 @@ export default function Prestamos() {
                                           <span className="font-medium">
                                             {formatCOP(a.monto)}
                                           </span>
-                                          {a.origen === "nomina" ? (
+                                          {/* Marca solo los abonos viejos que se
+                                              descontaron en una liquidación. */}
+                                          {a.origen === "nomina" && (
                                             <Badge variant="outline">
                                               Descontado en nómina
-                                            </Badge>
-                                          ) : (
-                                            <Badge variant="secondary">
-                                              {a.metodo_pago
-                                                ? LABEL_METODO_PAGO[a.metodo_pago]
-                                                : "En caja"}
                                             </Badge>
                                           )}
                                           <span className="flex-1" />
@@ -548,7 +533,7 @@ function TotalTile({
   );
 }
 
-/** Alta y edición de un préstamo (el servidor mueve la caja). */
+/** Alta y edición de un préstamo. Solo registro: no mueve la caja. */
 function PrestamoDialog({
   prestamo,
   empleados,
@@ -563,7 +548,6 @@ function PrestamoDialog({
   const [empleadoId, setEmpleadoId] = useState(prestamo?.empleado_id ?? "");
   const [monto, setMonto] = useState(prestamo ? String(prestamo.monto) : "");
   const [fecha, setFecha] = useState(prestamo?.fecha ?? hoyISO());
-  const [metodo, setMetodo] = useState<MetodoPago>(prestamo?.metodo_pago ?? "efectivo");
   const [concepto, setConcepto] = useState(prestamo?.concepto ?? "");
 
   const guardar = useMutation({
@@ -578,15 +562,12 @@ function PrestamoDialog({
         p_empleado_id: empleadoId,
         p_monto: valor,
         p_fecha: fecha,
-        p_metodo_pago: metodo,
         p_concepto: concepto.trim() || null,
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success(prestamo ? "Préstamo actualizado" : "Préstamo registrado", {
-        description: "Queda como egreso de la caja principal",
-      });
+      toast.success(prestamo ? "Préstamo actualizado" : "Préstamo registrado");
       onGuardado();
       onClose();
     },
@@ -643,22 +624,6 @@ function PrestamoDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>Se entrega con</Label>
-            <Select value={metodo} onValueChange={(v) => setMetodo(v as MetodoPago)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {METODOS_PAGO.map((m) => (
-                  <SelectItem key={m.value} value={m.value}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
             <Label htmlFor="p-concepto">Motivo (opcional)</Label>
             <Input
               id="p-concepto"
@@ -669,8 +634,8 @@ function PrestamoDialog({
           </div>
 
           <p className="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
-            Se registra un <strong>egreso en la caja principal</strong> por este monto.
-            Después puedes abonarlo acá o descontarlo al liquidarle la nómina.
+            Queda solo en este registro: <strong>no sale de la caja</strong>. A medida
+            que el trabajador vaya pagando, le registras los abonos acá.
           </p>
         </div>
         <DialogFooter>
@@ -684,7 +649,7 @@ function PrestamoDialog({
   );
 }
 
-/** Abono en caja (el que se descuenta en nómina se hace desde Nómina). */
+/** Abono a un préstamo. Solo registro: no entra plata a la caja. */
 function AbonoDialog({
   prestamo,
   saldo,
@@ -700,7 +665,6 @@ function AbonoDialog({
 }) {
   const [monto, setMonto] = useState(String(saldo));
   const [fecha, setFecha] = useState(hoyISO());
-  const [metodo, setMetodo] = useState<MetodoPago>("efectivo");
 
   const abonar = useMutation({
     mutationFn: async () => {
@@ -712,14 +676,11 @@ function AbonoDialog({
         p_prestamo_id: prestamo.id,
         p_monto: valor,
         p_fecha: fecha,
-        p_metodo_pago: metodo,
       });
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Abono registrado", {
-        description: "Entra como ingreso a la caja principal",
-      });
+      toast.success("Abono registrado");
       onGuardado();
       onClose();
     },
@@ -764,25 +725,9 @@ function AbonoDialog({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>Se recibe con</Label>
-            <Select value={metodo} onValueChange={(v) => setMetodo(v as MetodoPago)}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {METODOS_PAGO.map((m) => (
-                  <SelectItem key={m.value} value={m.value}>
-                    {m.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
           <p className="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
-            Este abono entra como <strong>ingreso a la caja principal</strong>. Si lo que
-            quieres es descontárselo del pago, hazlo al liquidarle la nómina.
+            Queda solo en este registro: <strong>no entra a la caja</strong>. Baja lo
+            que el trabajador debe.
           </p>
         </div>
         <DialogFooter>

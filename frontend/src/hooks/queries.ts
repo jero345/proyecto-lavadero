@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 
 import { supabase } from "@/lib/supabase";
 import type {
-  Cliente,
   Empleado,
   Orden,
   Servicio,
@@ -94,20 +93,10 @@ export function useServicios(soloActivos = true) {
   });
 }
 
-/** Lista de clientes. */
-export function useClientes() {
-  return useQuery({
-    queryKey: ["clientes"],
-    queryFn: async (): Promise<Cliente[]> => {
-      const { data, error } = await supabase
-        .from("clientes")
-        .select("*")
-        .order("nombre");
-      if (error) throw error;
-      return data;
-    },
-  });
-}
+// Los clientes NO se traen en lista completa: la API corta la respuesta en
+// 1.000 filas y los que quedaban fuera no aparecían en ningún buscador
+// (migración 0043). Se buscan en el servidor con `buscarClientes` de
+// `@/lib/clientes`.
 
 /** Todas las órdenes (para la sección Órdenes). RLS filtra según el rol. */
 export function useOrdenes() {

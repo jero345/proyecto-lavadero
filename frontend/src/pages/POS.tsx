@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronsUpDown, Loader2, Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -26,13 +26,14 @@ import { cn } from "@/lib/utils";
 import { formatCOP } from "@/lib/format";
 import { supabase } from "@/lib/supabase";
 import { METODOS_PAGO, iconoTipoVehiculo, colorTipoVehiculo } from "@/lib/dominio";
-import { useAuth } from "@/hooks/useAuth";
 import {
-  useClientes,
-  useEmpleados,
-  useServicios,
-  useTiposVehiculo,
-} from "@/hooks/queries";
+  buscarClientes,
+  buscarClienteDuplicado,
+  mensajeDuplicado,
+  traducirErrorCliente,
+} from "@/lib/clientes";
+import { useAuth } from "@/hooks/useAuth";
+import { useEmpleados, useServicios, useTiposVehiculo } from "@/hooks/queries";
 import type { Cliente, MetodoPago, TipoVehiculo } from "@/types/database.types";
 
 export default function POS() {
@@ -41,12 +42,13 @@ export default function POS() {
 
   const { data: servicios = [], isLoading: cargandoServicios } = useServicios(true);
   const { data: empleados = [] } = useEmpleados();
-  const { data: clientes = [] } = useClientes();
   const { data: tiposVehiculo = [] } = useTiposVehiculo();
 
   const [tipo, setTipo] = useState<TipoVehiculo | null>(null);
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
-  const [clienteId, setClienteId] = useState<string>("");
+  // El cliente elegido se guarda completo: la lista ya no se trae entera, se
+  // busca en el servidor (mig. 0043).
+  const [cliente, setCliente] = useState<Cliente | null>(null);
   const [empleadoId, setEmpleadoId] = useState<string>("");
   const [metodoPago, setMetodoPago] = useState<MetodoPago | "">("");
   const [observaciones, setObservaciones] = useState("");
@@ -93,7 +95,7 @@ export default function POS() {
   function reset() {
     setTipo(null);
     setSeleccion(new Set());
-    setClienteId("");
+    setCliente(null);
     setMetodoPago("");
     setObservaciones("");
     setTotalManual(null);
@@ -120,14 +122,14 @@ export default function POS() {
 
       // La placa se hereda del cliente seleccionado para que quede en la orden
       // (el dueño la necesita al cobrar y en el Dashboard).
-      const placaCliente = clientes.find((c) => c.id === clienteId)?.placa ?? null;
+      const placaCliente = cliente?.placa ?? null;
 
       const { data, error } = await supabase.rpc("crear_orden", {
         p_servicio_ids: Array.from(seleccion),
         p_empleado_id: empleadoId || null,
         p_metodo_pago: metodoPago || null,
         p_placa: placaCliente,
-        p_cliente_id: clienteId || null,
+        p_cliente_id: cliente?.id ?? null,
         p_vehiculo_id: null,
         p_foto_url: null,
         p_observaciones: observaciones.trim() || null,
@@ -273,13 +275,9 @@ export default function POS() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Cliente (opcional)</Label>
-                <NuevoClienteRapido onCreado={(id) => setClienteId(id)} />
+                <NuevoClienteRapido onCreado={setCliente} />
               </div>
-              <ClientePicker
-                clientes={clientes}
-                value={clienteId}
-                onChange={setClienteId}
-              />
+              <ClientePicker value={cliente} onChange={setCliente} />
             </div>
 
             {/* Observaciones: las escribe cualquier rol (el empleado es quien
@@ -423,33 +421,38 @@ function subtituloCliente(c: Cliente): string {
 /**
  * Selector de cliente con buscador. El dueño busca por PLACA (también por nombre
  * o teléfono). Muestra la placa como identificador principal.
+ *
+ * La búsqueda la hace la BASE, no el navegador: con muchos clientes la lista
+ * completa no cabía en una sola respuesta y los últimos no aparecían nunca
+ * (migración 0043).
  */
 function ClientePicker({
-  clientes,
   value,
   onChange,
 }: {
-  clientes: Cliente[];
-  value: string;
-  onChange: (id: string) => void;
+  value: Cliente | null;
+  onChange: (cliente: Cliente | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [busqueda, setBusqueda] = useState("");
+  // Se espera un momento a que termine de teclear para no consultar por letra.
+  const [termino, setTermino] = useState("");
 
-  const seleccionado = clientes.find((c) => c.id === value) ?? null;
+  useEffect(() => {
+    const t = setTimeout(() => setTermino(busqueda), 250);
+    return () => clearTimeout(t);
+  }, [busqueda]);
 
-  const filtrados = useMemo(() => {
-    const q = busqueda.trim().toLowerCase();
-    if (!q) return clientes;
-    return clientes.filter((c) =>
-      [c.placa, c.nombre, c.telefono]
-        .filter(Boolean)
-        .some((campo) => campo!.toLowerCase().includes(q)),
-    );
-  }, [clientes, busqueda]);
+  const seleccionado = value;
 
-  function elegir(id: string) {
-    onChange(id);
+  const { data: filtrados = [], isFetching } = useQuery({
+    queryKey: ["clientes", "buscar", termino],
+    enabled: open,
+    queryFn: () => buscarClientes(termino, 30),
+  });
+
+  function elegir(cliente: Cliente | null) {
+    onChange(cliente);
     setOpen(false);
     setBusqueda("");
   }
@@ -473,7 +476,7 @@ function ClientePicker({
               className="h-4 w-4 text-muted-foreground hover:text-foreground"
               onClick={(e) => {
                 e.stopPropagation();
-                onChange("");
+                onChange(null);
               }}
             />
           )}
@@ -505,14 +508,18 @@ function ClientePicker({
           <div className="max-h-72 space-y-1 overflow-y-auto">
             <button
               type="button"
-              onClick={() => elegir("")}
+              onClick={() => elegir(null)}
               className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm text-muted-foreground hover:bg-accent"
             >
               Sin cliente
             </button>
             {filtrados.length === 0 ? (
               <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-                No se encontraron clientes.
+                {isFetching
+                  ? "Buscando…"
+                  : termino.trim()
+                    ? "No se encontraron clientes. Créalo con el botón «Nuevo»."
+                    : "Aún no hay clientes."}
               </p>
             ) : (
               filtrados.map((c) => {
@@ -521,10 +528,10 @@ function ClientePicker({
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => elegir(c.id)}
+                    onClick={() => elegir(c)}
                     className={cn(
                       "flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-accent",
-                      c.id === value && "bg-accent",
+                      c.id === value?.id && "bg-accent",
                     )}
                   >
                     <span className="truncate font-medium uppercase">
@@ -544,8 +551,12 @@ function ClientePicker({
   );
 }
 
-/** Crea un cliente al instante desde el POS y lo deja seleccionado. */
-function NuevoClienteRapido({ onCreado }: { onCreado: (id: string) => void }) {
+/**
+ * Crea un cliente al instante desde el POS y lo deja seleccionado. Si el cliente
+ * ya existía (misma placa), no falla con un error críptico: lo dice y lo
+ * selecciona, que es lo que el dueño quería hacer.
+ */
+function NuevoClienteRapido({ onCreado }: { onCreado: (cliente: Cliente) => void }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [placa, setPlaca] = useState("");
@@ -558,6 +569,12 @@ function NuevoClienteRapido({ onCreado }: { onCreado: (id: string) => void }) {
       const nombreLimpio = nombre.trim();
       // La placa es lo principal; el nombre es opcional. Debe haber al menos uno.
       if (!placaLimpia && !nombreLimpio) throw new Error("Ingresá la placa (o el nombre)");
+      // ¿Ya existe? Entonces no se crea: se devuelve el que hay.
+      const existente = await buscarClienteDuplicado(placaLimpia, nombreLimpio);
+      if (existente) {
+        return { cliente: existente, yaExistia: true };
+      }
+
       const { data, error } = await supabase
         .from("clientes")
         .insert({
@@ -568,14 +585,20 @@ function NuevoClienteRapido({ onCreado }: { onCreado: (id: string) => void }) {
         })
         .select()
         .single();
-      if (error) throw error;
-      return data;
+      if (error) throw traducirErrorCliente(error, placaLimpia, nombreLimpio);
+      return { cliente: data, yaExistia: false };
     },
-    onSuccess: async (cliente) => {
-      toast.success("Cliente creado");
-      // Refresca la lista y deja al nuevo cliente seleccionado en la orden.
+    onSuccess: async ({ cliente, yaExistia }) => {
+      if (yaExistia) {
+        toast.info(mensajeDuplicado(cliente, placa, nombre), {
+          description: "Lo dejamos seleccionado en la orden",
+        });
+      } else {
+        toast.success("Cliente creado");
+      }
+      // Refresca las búsquedas y deja al cliente seleccionado en la orden.
       await queryClient.invalidateQueries({ queryKey: ["clientes"] });
-      onCreado(cliente.id);
+      onCreado(cliente);
       setPlaca("");
       setNombre("");
       setTelefono("");

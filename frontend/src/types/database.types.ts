@@ -366,9 +366,9 @@ export type Database = {
           empleado_id: string;
           monto: number;
           fecha: string;
-          metodo_pago: MetodoPago;
+          /** Histórico: desde la 0042 el préstamo no mueve plata del negocio. */
+          metodo_pago: MetodoPago | null;
           concepto: string | null;
-          /** Egreso de caja con el que se entregó la plata. */
           caja_movimiento_id: string | null;
           created_by: string;
           created_at: string;
@@ -378,7 +378,7 @@ export type Database = {
           empleado_id: string;
           monto: number;
           fecha?: string;
-          metodo_pago: MetodoPago;
+          metodo_pago?: MetodoPago | null;
           concepto?: string | null;
           caja_movimiento_id?: string | null;
           created_by?: string;
@@ -483,8 +483,6 @@ export type Database = {
           p_fecha_inicio: string;
           p_fecha_fin: string;
           p_metodo_pago?: MetodoPago;
-          /** Cuánto descontarle de sus préstamos en esta liquidación. */
-          p_abono_prestamo?: number;
         };
         Returns: Database["public"]["Tables"]["nomina_liquidaciones"]["Row"];
       };
@@ -597,13 +595,13 @@ export type Database = {
         Returns: undefined;
       };
       guardar_prestamo: {
-        /** p_id null = préstamo nuevo. */
+        /** p_id null = préstamo nuevo. No mueve la caja (mig. 0042). */
         Args: {
           p_id: string | null;
           p_empleado_id: string;
           p_monto: number;
           p_fecha: string;
-          p_metodo_pago: MetodoPago;
+          p_metodo_pago?: MetodoPago | null;
           p_concepto?: string | null;
         };
         Returns: Database["public"]["Tables"]["prestamos"]["Row"];
@@ -617,7 +615,7 @@ export type Database = {
           p_prestamo_id: string;
           p_monto: number;
           p_fecha: string;
-          p_metodo_pago: MetodoPago;
+          p_metodo_pago?: MetodoPago | null;
         };
         Returns: Database["public"]["Tables"]["prestamo_abonos"]["Row"];
       };
@@ -628,6 +626,16 @@ export type Database = {
       saldo_prestamos_empleado: {
         Args: { p_empleado_id: string };
         Returns: number;
+      };
+      buscar_clientes: {
+        /** Busca por placa, nombre o teléfono (sin espacios ni mayúsculas). */
+        Args: { p_q?: string; p_limite?: number };
+        Returns: Database["public"]["Tables"]["clientes"]["Row"][];
+      };
+      buscar_cliente_duplicado: {
+        /** 0 o 1 fila: el cliente que ya existe con esa placa (o ese nombre). */
+        Args: { p_placa: string; p_nombre: string; p_excluir?: string | null };
+        Returns: Database["public"]["Tables"]["clientes"]["Row"][];
       };
     };
     Enums: Record<string, never>;

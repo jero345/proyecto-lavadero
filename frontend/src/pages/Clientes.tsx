@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   History,
@@ -48,7 +48,11 @@ import { formatCOP, formatFechaHora } from "@/lib/format";
 import { CLASE_ESTADO, LABEL_ESTADO } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
-import { useClientes } from "@/hooks/queries";
+import {
+  buscarClientes,
+  verificarClienteDuplicado,
+  traducirErrorCliente,
+} from "@/lib/clientes";
 import type { Cliente, Orden } from "@/types/database.types";
 
 /** Botón para eliminar un cliente (staff), con confirmación. */
@@ -117,59 +121,10 @@ function EliminarClienteButton({
   );
 }
 
-/** Normaliza un texto para comparar sin importar mayúsculas/espacios. */
-function normalizar(texto: string): string {
-  return texto.trim().toUpperCase().replace(/\s+/g, "");
-}
-
 /**
  * Traduce el error de índice único de la base (código 23505, cuando dos guardan
  * la misma placa "a la vez" y el pre-chequeo no alcanzó) a un mensaje legible.
  */
-function traducirErrorCliente(
-  error: { code?: string },
-  placa: string,
-  nombre: string,
-): Error {
-  if (error.code === "23505") {
-    return new Error(
-      placa
-        ? `Ya existe un cliente con la placa ${placa}`
-        : `Ya existe un cliente con el nombre "${nombre}"`,
-    );
-  }
-  return error as unknown as Error;
-}
-
-/**
- * Bloquea clientes duplicados: si ya existe uno con la MISMA placa (o el mismo
- * nombre cuando no hay placa), lanza un error legible. `excluirId` sirve al
- * editar, para no chocar consigo mismo. Compara normalizado (sin mayúsculas ni
- * espacios) para atrapar "ABC 123" vs "abc123".
- */
-async function verificarClienteDuplicado(
-  placa: string,
-  nombre: string,
-  excluirId?: string,
-): Promise<void> {
-  const placaNorm = normalizar(placa);
-  const nombreNorm = normalizar(nombre);
-
-  const { data, error } = await supabase.from("clientes").select("id, placa, nombre");
-  if (error) throw error;
-
-  for (const c of data ?? []) {
-    if (excluirId && c.id === excluirId) continue;
-    if (placaNorm && normalizar(c.placa ?? "") === placaNorm) {
-      throw new Error(`Ya existe un cliente con la placa ${placa.trim().toUpperCase()}`);
-    }
-    // Solo comparamos por nombre cuando el nuevo cliente NO tiene placa.
-    if (!placaNorm && nombreNorm && normalizar(c.nombre ?? "") === nombreNorm) {
-      throw new Error(`Ya existe un cliente con el nombre "${nombre.trim()}"`);
-    }
-  }
-}
-
 /**
  * Normaliza un teléfono al formato que espera wa.me (E.164 sin "+"): solo
  * dígitos, con indicativo de país. En Colombia los celulares son 10 dígitos;
@@ -185,22 +140,25 @@ function numeroWhatsApp(telefono: string): string {
 export default function Clientes() {
   const queryClient = useQueryClient();
   const { isStaff } = useAuth();
-  const { data: clientes = [] } = useClientes();
   const [historialDe, setHistorialDe] = useState<Cliente | null>(null);
   const [editandoDe, setEditandoDe] = useState<Cliente | null>(null);
   const [busqueda, setBusqueda] = useState("");
+  // Se espera un momento a que termine de teclear para no consultar por letra.
+  const [termino, setTermino] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setTermino(busqueda), 250);
+    return () => clearTimeout(t);
+  }, [busqueda]);
 
   const invalidar = () => queryClient.invalidateQueries({ queryKey: ["clientes"] });
 
-  const clientesFiltrados = useMemo(() => {
-    const q = busqueda.trim().toLowerCase();
-    if (!q) return clientes;
-    return clientes.filter((c) =>
-      [c.placa, c.nombre, c.telefono]
-        .filter(Boolean)
-        .some((campo) => campo!.toLowerCase().includes(q)),
-    );
-  }, [clientes, busqueda]);
+  // La búsqueda la hace la BASE: con muchos clientes la lista completa no cabía
+  // en una sola respuesta y los últimos no aparecían (migración 0043).
+  const { data: clientesFiltrados = [], isLoading } = useQuery({
+    queryKey: ["clientes", "buscar", termino],
+    queryFn: () => buscarClientes(termino, 100),
+  });
 
   return (
     <div className="space-y-4">
@@ -209,25 +167,32 @@ export default function Clientes() {
         <NuevoCliente onCreado={invalidar} />
       </div>
 
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          placeholder="Buscar por placa, nombre o teléfono…"
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          className="pl-9"
-        />
+      <div>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por placa, nombre o teléfono…"
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {termino.trim()
+            ? `${clientesFiltrados.length} resultado${clientesFiltrados.length === 1 ? "" : "s"}`
+            : "Se muestran los últimos 100 clientes registrados. Usa el buscador para encontrar cualquier otro."}
+        </p>
       </div>
 
       <Card>
         <CardContent className="p-0">
-          {clientes.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              No hay clientes registrados.
-            </p>
+          {isLoading ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">Cargando…</p>
           ) : clientesFiltrados.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
-              Ningún cliente coincide con «{busqueda}».
+              {termino.trim()
+                ? `Ningún cliente coincide con «${busqueda}».`
+                : "No hay clientes registrados."}
             </p>
           ) : (
             <Table>
