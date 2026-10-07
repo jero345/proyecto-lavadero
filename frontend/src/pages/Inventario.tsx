@@ -1,7 +1,9 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  ArrowRight,
   Eye,
   EyeOff,
   Loader2,
@@ -1414,12 +1416,40 @@ function CajaInventario() {
           <TileCaja titulo="Transferencia" valor={totales.transferencia} />
           <TileCaja titulo="Total sin cerrar" valor={totales.total} destacado />
         </div>
-        {cierres.length > 0 && (
-          <p className="text-xs text-muted-foreground">
-            Último cierre: {formatFechaHora(cierres[0].fecha_cierre)} ·{" "}
-            {formatCOP(cierres[0].total_general)}
-          </p>
-        )}
+        {/* Los cierres de esta caja, acá mismo: el historial completo vive en
+            /cierres, pero desde el inventario no había cómo verlos. */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">Cierres de esta caja</p>
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/cierres?caja=inventario">
+                Ver historial completo
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </Button>
+          </div>
+          {cierres.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Todavía no has cerrado la caja de inventario.
+            </p>
+          ) : (
+            <div className="divide-y rounded-lg border">
+              {cierres.map((c) => (
+                <div key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 p-2.5">
+                  <span className="whitespace-nowrap text-sm text-muted-foreground">
+                    {formatFechaHora(c.fecha_cierre)}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Efectivo {formatCOP(c.total_efectivo)} · QR {formatCOP(c.total_qr)} ·
+                    Transferencia {formatCOP(c.total_transferencia)}
+                  </span>
+                  <span className="flex-1" />
+                  <span className="font-semibold">{formatCOP(c.total_general)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

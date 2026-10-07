@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Eye, Loader2, Pencil, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -52,7 +53,12 @@ export default function Cierres() {
   const { isSuperAdmin } = useAuth();
   // Arranca en la caja PRINCIPAL: la caja de inventario es un flujo aparte y no
   // debe sumarse con la principal salvo que se pida ver "Todas las cajas".
-  const [caja, setCaja] = useState<FiltroCaja>("principal");
+  // Con ?caja=inventario en la URL arranca en esa (el enlace del Inventario).
+  const [params] = useSearchParams();
+  const [caja, setCaja] = useState<FiltroCaja>(() => {
+    const pedida = params.get("caja");
+    return pedida === "inventario" || pedida === "todas" ? pedida : "principal";
+  });
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
   const [detalle, setDetalle] = useState<CierreCaja | null>(null);

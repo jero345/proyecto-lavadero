@@ -333,7 +333,7 @@ cada función RPC). El frontend solo oculta; la base es la que decide.
 | `/pos` | `POS.tsx` | todos | **Nueva orden.** Flujo: tipo de vehículo → servicios (multi-selección) → datos y cobro (cliente con buscador por placa/nombre, placa, observaciones, foto, método de pago, total editable) → empleado (opcional). Optimizado para móvil |
 | `/ordenes` | `Ordenes.tsx` | todos | Historial completo con filtros; reimprimir recibo |
 | `/caja` | `Caja.tsx` | staff | Caja principal: movimientos sin cerrar, totales por método, botón de cierre, últimos cierres |
-| `/cierres` | `Cierres.tsx` | staff | Historial de cierres con desglose; el super admin edita el total general |
+| `/cierres` | `Cierres.tsx` | staff | Historial de cierres con desglose; el super admin edita el total general. Arranca filtrado en la caja principal, o en la que diga `?caja=` (así entra el enlace del Inventario) |
 | `/movimientos` | `Movimientos.tsx` | staff | Todos los movimientos de ambas cajas; alta manual con fecha libre, editar, eliminar. Filtros de caja, tipo, estado, concepto y **rango de fechas**; solo muestra cuántos movimientos hay, sin totales en plata |
 | `/gastos` | `Gastos.tsx` | staff | Gastos fijos (arriendo, servicios). **Siempre** salen como egreso de la caja principal y restan del total general del cierre (migración 0038) |
 | `/prestamos` | `Prestamos.tsx` | staff | Préstamos a trabajadores: préstamos, abonos y saldo por trabajador. **Control aparte: no mueve la caja ni la nómina** (migración 0042) |
