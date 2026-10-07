@@ -1339,7 +1339,8 @@ function CajaInventario() {
         .select("*")
         .eq("caja", "inventario")
         .order("fecha_cierre", { ascending: false })
-        .limit(5);
+        // Todos los cierres de esta caja (el tope es por si acaso).
+        .limit(500);
       if (error) throw error;
       return data;
     },
@@ -1420,7 +1421,14 @@ function CajaInventario() {
             /cierres, pero desde el inventario no había cómo verlos. */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">Cierres de esta caja</p>
+            <p className="text-sm font-medium">
+              Cierres de esta caja
+              {cierres.length > 0 && (
+                <span className="ml-1 font-normal text-muted-foreground">
+                  ({cierres.length})
+                </span>
+              )}
+            </p>
             <Button asChild variant="ghost" size="sm">
               <Link to="/cierres?caja=inventario">
                 Ver historial completo
@@ -1433,7 +1441,7 @@ function CajaInventario() {
               Todavía no has cerrado la caja de inventario.
             </p>
           ) : (
-            <div className="divide-y rounded-lg border">
+            <div className="max-h-80 divide-y overflow-y-auto rounded-lg border">
               {cierres.map((c) => (
                 <div key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 p-2.5">
                   <span className="whitespace-nowrap text-sm text-muted-foreground">
