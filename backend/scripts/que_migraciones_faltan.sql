@@ -33,6 +33,16 @@ with marcas as (
          exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                   where n.nspname = 'public' and p.proname = 'cerrar_caja'
                     and pg_get_functiondef(p.oid) like '%la cierra el super admin%')
+  union all
+  select '0042 — los préstamos no tocan la caja',
+         exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname = 'public' and p.proname = 'liquidar_nomina'
+                    and pg_get_function_identity_arguments(p.oid)
+                        = 'p_empleado_id uuid, p_fecha_inicio date, p_fecha_fin date, p_metodo_pago text')
+  union all
+  select '0043 — buscador de clientes en el servidor',
+         exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname = 'public' and p.proname = 'buscar_clientes')
 )
 select migracion,
        case when aplicada then 'OK — ya está' else 'FALTA — hay que correrla' end as estado
