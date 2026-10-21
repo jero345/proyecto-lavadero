@@ -10,6 +10,7 @@ import {
   Loader2,
   Printer,
   BellRing,
+  Sparkles,
   StickyNote,
   UserRound,
 } from "lucide-react";
@@ -195,6 +196,16 @@ export default function Dashboard() {
           <p className="text-xs text-muted-foreground">
             {formatFechaHora(o.created_at)}
           </p>
+          {/* Qué se le está haciendo al vehículo. */}
+          {o.servicios.length > 0 && (
+            <p
+              className="mt-1 flex gap-1 text-sm font-semibold text-primary"
+              title={o.servicios.join(", ")}
+            >
+              <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span className="line-clamp-2">{o.servicios.join(", ")}</span>
+            </p>
+          )}
           {o.cliente_nombre && (
             <p className="mt-0.5 flex items-center gap-1 truncate text-xs font-medium">
               <UserRound className="h-3 w-3 shrink-0 text-muted-foreground" />

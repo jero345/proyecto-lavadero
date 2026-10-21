@@ -15,6 +15,32 @@ export async function imprimirComprobanteNomina(
   liquidacion: NominaLiquidacion,
   nombreEmpleado: string,
 ) {
+  // Salario fijo: no hay órdenes ni comisión que detallar, solo la quincena.
+  if (liquidacion.tipo === "salario") {
+    imprimirHTML(
+      documentoTirilla(
+        `Nomina ${numeroRecibo(liquidacion.id)}`,
+        `
+    <div class="sep"></div>
+    <div class="center bold">COMPROBANTE DE NOMINA</div>
+    <div class="center small">N° ${esc(numeroRecibo(liquidacion.id))}</div>
+
+    <div class="sep"></div>
+    <div class="row"><span>Trabajador</span><span class="r bold">${esc(nombreEmpleado)}</span></div>
+    <div class="row"><span>Quincena</span><span class="r">${esc(formatFecha(liquidacion.fecha_inicio))} – ${esc(formatFecha(liquidacion.fecha_fin))}</span></div>
+    <div class="row"><span>Emitido</span><span class="r">${esc(formatFechaHora(liquidacion.created_at))}</span></div>
+
+    <div class="sep"></div>
+    <div class="small">Salario fijo + auxilio de transporte</div>
+    <div class="row total bold"><span>A PAGAR</span><span class="r">${formatCOP(liquidacion.total_pagar)}</span></div>
+
+    <div class="firma small">Recibí conforme · ${esc(nombreEmpleado)}</div>
+`,
+      ),
+    );
+    return;
+  }
+
   const { data, error } = await supabase.rpc("detalle_nomina", {
     p_empleado_id: liquidacion.empleado_id,
     p_fecha_inicio: liquidacion.fecha_inicio,

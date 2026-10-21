@@ -9,6 +9,7 @@ import {
   FolderOpen,
   Loader2,
   Printer,
+  Wallet,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -33,7 +34,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatCOP, formatFecha, formatFechaHora } from "@/lib/format";
-import { METODOS_PAGO } from "@/lib/dominio";
+import { METODOS_PAGO, pagoQuincena, quincenasDelMes } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
 import {
   imprimirComprobanteNomina,
@@ -43,7 +44,7 @@ import { useEmpleados } from "@/hooks/queries";
 import { useAuth } from "@/hooks/useAuth";
 import { EliminarLiquidacionButton } from "@/components/EliminarLiquidacionButton";
 import { AvisoNominaPendiente } from "@/components/AvisoNominaPendiente";
-import type { MetodoPago, NominaLiquidacion } from "@/types/database.types";
+import type { Empleado, MetodoPago, NominaLiquidacion } from "@/types/database.types";
 
 /**
  * Fecha local en formato YYYY-MM-DD. NO usar toISOString(): convierte a UTC y en
@@ -66,7 +67,16 @@ function hoyISO() {
 export default function Nomina() {
   const queryClient = useQueryClient();
   const { isStaff } = useAuth();
-  const { data: empleados = [] } = useEmpleados();
+  const { data: activos = [] } = useEmpleados();
+  // Los de salario fijo (Diego) no ganan comisión: van en su nómina aparte.
+  const empleados = useMemo(
+    () => activos.filter((e) => e.tipo_pago !== "salario"),
+    [activos],
+  );
+  const asalariados = useMemo(
+    () => activos.filter((e) => e.tipo_pago === "salario"),
+    [activos],
+  );
   // Incluye inactivos: sus liquidaciones viejas tienen que seguir con nombre.
   const { data: todosLosEmpleados = [] } = useEmpleados(false);
 
@@ -126,6 +136,7 @@ export default function Nomina() {
         id,
         nombre: nombrePorId.get(id) ?? "Empleado eliminado",
         liquidaciones: ls,
+        soloSalario: ls.every((l) => l.tipo === "salario"),
         // Lo pagado de verdad: la comisión menos lo que se le descontó de préstamos.
         totalPagado: ls.reduce(
           (acc, l) => acc + Number(l.total_pagar) - Number(l.abono_prestamo),
@@ -305,6 +316,11 @@ export default function Nomina() {
         </CardContent>
       </Card>
 
+      {/* Nómina aparte: trabajadores de salario fijo, se pagan por quincena. */}
+      {asalariados.length > 0 && (
+        <NominaSalario asalariados={asalariados} liquidaciones={liquidaciones} />
+      )}
+
       {/* Consulta del periodo: informativa, no genera liquidación. */}
       {consulta && (
         <ResumenPeriodo
@@ -351,9 +367,19 @@ export default function Nomina() {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-semibold">{emp.nombre}</span>
                     <span className="block text-xs text-muted-foreground">
-                      {emp.liquidaciones.length} liquidación
-                      {emp.liquidaciones.length === 1 ? "" : "es"} · {emp.servicios} servicio
-                      {emp.servicios === 1 ? "" : "s"}
+                      {emp.soloSalario ? (
+                        <>
+                          {emp.liquidaciones.length} quincena
+                          {emp.liquidaciones.length === 1 ? "" : "s"} pagada
+                          {emp.liquidaciones.length === 1 ? "" : "s"} · salario fijo
+                        </>
+                      ) : (
+                        <>
+                          {emp.liquidaciones.length} liquidación
+                          {emp.liquidaciones.length === 1 ? "" : "es"} · {emp.servicios} servicio
+                          {emp.servicios === 1 ? "" : "s"}
+                        </>
+                      )}
                     </span>
                   </span>
                   <span className="shrink-0 text-right">
@@ -411,11 +437,24 @@ export default function Nomina() {
                               <TableCell className="whitespace-nowrap font-medium">
                                 {formatFecha(l.fecha_inicio)} – {formatFecha(l.fecha_fin)}
                               </TableCell>
-                              <TableCell className="text-right">{l.total_servicios}</TableCell>
-                              <TableCell className="text-right">
-                                {formatCOP(l.total_facturado)}
-                              </TableCell>
-                              <TableCell className="text-right">{l.porcentaje}%</TableCell>
+                              {l.tipo === "salario" ? (
+                                <TableCell
+                                  colSpan={3}
+                                  className="text-right text-muted-foreground"
+                                >
+                                  Quincena de salario fijo
+                                </TableCell>
+                              ) : (
+                                <>
+                                  <TableCell className="text-right">
+                                    {l.total_servicios}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    {formatCOP(l.total_facturado)}
+                                  </TableCell>
+                                  <TableCell className="text-right">{l.porcentaje}%</TableCell>
+                                </>
+                              )}
                               <TableCell className="text-right font-semibold text-primary">
                                 {formatCOP(
                                   Number(l.total_pagar) - Number(l.abono_prestamo),
@@ -480,6 +519,166 @@ export default function Nomina() {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Nómina de salario fijo: a estos trabajadores no se les paga comisión sino una
+ * quincena del sueldo (salario + auxilio de transporte, dividido en dos). El
+ * pago sale como egreso de la caja principal y el servidor no deja pagar dos
+ * veces la misma quincena (`liquidar_salario`, migración 0044).
+ */
+function NominaSalario({
+  asalariados,
+  liquidaciones,
+}: {
+  asalariados: Empleado[];
+  liquidaciones: NominaLiquidacion[];
+}) {
+  const queryClient = useQueryClient();
+  const [empleadoId, setEmpleadoId] = useState(
+    asalariados.length === 1 ? asalariados[0].id : "",
+  );
+  const [mes, setMes] = useState(hoyISO().slice(0, 7));
+  const [quincena, setQuincena] = useState(quincenasDelMes(new Date()).actual);
+  const [metodo, setMetodo] = useState<MetodoPago>("efectivo");
+
+  const [y, m] = mes.split("-").map(Number);
+  const periodo = quincenasDelMes(new Date(y, m - 1, 1)).quincenas.find(
+    (q) => q.clave === quincena,
+  )!;
+  const empleado = asalariados.find((e) => e.id === empleadoId);
+  const monto = empleado ? pagoQuincena(empleado) : 0;
+
+  // Reflejo en pantalla de la regla del servidor: una quincena se paga una vez.
+  const yaPagada = liquidaciones.some(
+    (l) =>
+      l.tipo === "salario" &&
+      l.empleado_id === empleadoId &&
+      l.fecha_inicio <= periodo.fin &&
+      l.fecha_fin >= periodo.inicio,
+  );
+
+  const pagar = useMutation({
+    mutationFn: async () => {
+      if (!empleadoId) throw new Error("Selecciona un trabajador");
+      const { data, error } = await supabase.rpc("liquidar_salario", {
+        p_empleado_id: empleadoId,
+        p_fecha_inicio: periodo.inicio,
+        p_fecha_fin: periodo.fin,
+        p_metodo_pago: metodo,
+      });
+      if (error) throw error;
+      return data as NominaLiquidacion;
+    },
+    onSuccess: (l) => {
+      toast.success("Quincena pagada", {
+        description: `${formatCOP(l.total_pagar)} · egreso registrado en caja`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["nomina"] });
+      queryClient.invalidateQueries({ queryKey: ["caja"] });
+    },
+    onError: (e: unknown) =>
+      toast.error("No se pudo pagar", {
+        description: e instanceof Error ? e.message : "",
+      }),
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Wallet className="h-4 w-4 text-primary" />
+          Nómina de salario fijo
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+          <div className="space-y-2">
+            <Label>Trabajador</Label>
+            <Select value={empleadoId} onValueChange={setEmpleadoId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Selecciona" />
+              </SelectTrigger>
+              <SelectContent>
+                {asalariados.map((e) => (
+                  <SelectItem key={e.id} value={e.id}>
+                    {e.nombre}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="sal-mes">Mes</Label>
+            <Input
+              id="sal-mes"
+              type="month"
+              value={mes}
+              onChange={(e) => e.target.value && setMes(e.target.value)}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Quincena</Label>
+            <Select value={quincena} onValueChange={setQuincena}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {quincenasDelMes(new Date(y, m - 1, 1)).quincenas.map((q) => (
+                  <SelectItem key={q.clave} value={q.clave}>
+                    {q.label} ({formatFecha(q.inicio)} – {formatFecha(q.fin)})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>Pago con</Label>
+            <Select value={metodo} onValueChange={(v) => setMetodo(v as MetodoPago)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {METODOS_PAGO.map((mp) => (
+                  <SelectItem key={mp.value} value={mp.value}>
+                    {mp.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            onClick={() => pagar.mutate()}
+            disabled={pagar.isPending || !empleado || yaPagada}
+            title={yaPagada ? "Esta quincena ya se pagó" : undefined}
+          >
+            {pagar.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Calculator className="h-4 w-4" />
+            )}
+            Pagar {empleado ? formatCOP(monto) : "quincena"}
+          </Button>
+        </div>
+        {empleado && (
+          <p
+            className={`mt-3 text-xs ${yaPagada ? "font-medium text-amber-700" : "text-muted-foreground"}`}
+          >
+            {yaPagada ? (
+              <>A {empleado.nombre} ya se le pagó esta quincena.</>
+            ) : (
+              <>
+                Salario {formatCOP(empleado.salario_mensual)} + auxilio de transporte{" "}
+                {formatCOP(empleado.auxilio_transporte)} al mes →{" "}
+                <strong>{formatCOP(monto)}</strong> por quincena. No gana comisión; el
+                pago sale como egreso de la caja principal.
+              </>
+            )}
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

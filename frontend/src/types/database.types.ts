@@ -8,6 +8,8 @@ export type Rol = "super_admin" | "admin" | "empleado";
 export type TipoVehiculo = string;
 export type EstadoOrden = "en_proceso" | "completado" | "entregado";
 export type MetodoPago = "efectivo" | "qr" | "transferencia";
+/** Cómo se le paga al trabajador: % de lo que lava o sueldo fijo por quincena. */
+export type TipoPago = "comision" | "salario";
 export type TipoMovCaja = "ingreso" | "egreso";
 export type TipoMovInventario = "entrada" | "salida";
 export type CajaTipo = "principal" | "inventario";
@@ -74,6 +76,10 @@ export type Database = {
           nombre: string;
           telefono: string | null;
           porcentaje_comision: number;
+          /** comision = gana % de lo que lava · salario = fijo por quincena. */
+          tipo_pago: TipoPago;
+          salario_mensual: number;
+          auxilio_transporte: number;
           activo: boolean;
           observaciones: string | null;
           created_at: string;
@@ -83,6 +89,9 @@ export type Database = {
           nombre: string;
           telefono?: string | null;
           porcentaje_comision?: number;
+          tipo_pago?: TipoPago;
+          salario_mensual?: number;
+          auxilio_transporte?: number;
           activo?: boolean;
           observaciones?: string | null;
           created_at?: string;
@@ -428,6 +437,8 @@ export type Database = {
           total_pagar: number;
           /** Lo que se le descontó de sus préstamos (el egreso de caja es el neto). */
           abono_prestamo: number;
+          /** salario = pago de quincena de sueldo fijo (sin servicios ni %). */
+          tipo: TipoPago;
           created_at: string;
         };
         Insert: {
@@ -440,6 +451,7 @@ export type Database = {
           porcentaje?: number;
           total_pagar?: number;
           abono_prestamo?: number;
+          tipo?: TipoPago;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["nomina_liquidaciones"]["Insert"]>;
@@ -478,6 +490,15 @@ export type Database = {
         Returns: Database["public"]["Tables"]["cierres_caja"]["Row"];
       };
       liquidar_nomina: {
+        Args: {
+          p_empleado_id: string;
+          p_fecha_inicio: string;
+          p_fecha_fin: string;
+          p_metodo_pago?: MetodoPago;
+        };
+        Returns: Database["public"]["Tables"]["nomina_liquidaciones"]["Row"];
+      };
+      liquidar_salario: {
         Args: {
           p_empleado_id: string;
           p_fecha_inicio: string;

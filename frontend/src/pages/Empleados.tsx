@@ -35,10 +35,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { formatFecha } from "@/lib/format";
+import { formatCOP, formatFecha } from "@/lib/format";
+import { AUXILIO_TRANSPORTE, SMMLV, pagoQuincena } from "@/lib/dominio";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
-import type { Empleado } from "@/types/database.types";
+import type { Empleado, TipoPago } from "@/types/database.types";
 
 /**
  * Fecha local en formato YYYY-MM-DD. No usar toISOString() (convierte a UTC y
@@ -118,7 +119,13 @@ export default function Empleados() {
                       {formatFecha(e.created_at)}
                     </TableCell>
                     <TableCell className="text-right">
-                      {e.porcentaje_comision}%
+                      {e.tipo_pago === "salario" ? (
+                        <span className="whitespace-nowrap" title="Salario + auxilio, por quincena">
+                          Salario fijo · {formatCOP(pagoQuincena(e))}/quincena
+                        </span>
+                      ) : (
+                        `${e.porcentaje_comision}%`
+                      )}
                     </TableCell>
                     {/* Notas largas: se recortan y el texto completo va en el title. */}
                     <TableCell
@@ -249,6 +256,7 @@ function NuevoEmpleado({ onCreado }: { onCreado: () => void }) {
   const [nombre, setNombre] = useState("");
   const [telefono, setTelefono] = useState("");
   const [comision, setComision] = useState("40");
+  const [pago, setPago] = useState<DatosPago>(PAGO_POR_DEFECTO);
   const [observaciones, setObservaciones] = useState("");
 
   const crear = useMutation({
@@ -261,6 +269,7 @@ function NuevoEmpleado({ onCreado }: { onCreado: () => void }) {
         nombre: nombre.trim(),
         telefono: telefono.trim() || null,
         porcentaje_comision: pct,
+        ...validarPago(pago),
         observaciones: observaciones.trim() || null,
       });
       if (error) throw error;
@@ -270,6 +279,7 @@ function NuevoEmpleado({ onCreado }: { onCreado: () => void }) {
       setNombre("");
       setTelefono("");
       setComision("40");
+      setPago(PAGO_POR_DEFECTO);
       setObservaciones("");
       setOpen(false);
       onCreado();
@@ -311,17 +321,20 @@ function NuevoEmpleado({ onCreado }: { onCreado: () => void }) {
                 placeholder="300 000 0000"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="ne-com">Porcentaje de comisión (%)</Label>
-              <Input
-                id="ne-com"
-                type="number"
-                min={0}
-                max={100}
-                value={comision}
-                onChange={(e) => setComision(e.target.value)}
-              />
-            </div>
+            <CamposPago pago={pago} onChange={setPago} />
+            {pago.tipo_pago === "comision" && (
+              <div className="space-y-2">
+                <Label htmlFor="ne-com">Porcentaje de comisión (%)</Label>
+                <Input
+                  id="ne-com"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={comision}
+                  onChange={(e) => setComision(e.target.value)}
+                />
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="ne-obs">Observaciones (opcional)</Label>
               <Textarea
@@ -355,6 +368,15 @@ function EditarEmpleado({
   const [nombre, setNombre] = useState(empleado.nombre);
   const [telefono, setTelefono] = useState(empleado.telefono ?? "");
   const [comision, setComision] = useState(String(empleado.porcentaje_comision));
+  const [pago, setPago] = useState<DatosPago>(
+    empleado.tipo_pago === "salario"
+      ? {
+          tipo_pago: "salario",
+          salario: String(empleado.salario_mensual),
+          auxilio: String(empleado.auxilio_transporte),
+        }
+      : PAGO_POR_DEFECTO,
+  );
   const [observaciones, setObservaciones] = useState(empleado.observaciones ?? "");
   const [activo, setActivo] = useState(empleado.activo);
   const fechaIngresoInicial = fechaLocalISO(new Date(empleado.created_at));
@@ -371,6 +393,9 @@ function EditarEmpleado({
         nombre: string;
         telefono: string | null;
         porcentaje_comision: number;
+        tipo_pago: TipoPago;
+        salario_mensual: number;
+        auxilio_transporte: number;
         observaciones: string | null;
         activo: boolean;
         created_at?: string;
@@ -378,6 +403,7 @@ function EditarEmpleado({
         nombre: nombre.trim(),
         telefono: telefono.trim() || null,
         porcentaje_comision: pct,
+        ...validarPago(pago),
         observaciones: observaciones.trim() || null,
         activo,
       };
@@ -427,17 +453,20 @@ function EditarEmpleado({
             onChange={(e) => setTelefono(e.target.value)}
           />
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="ee-com">Porcentaje de comisión (%)</Label>
-          <Input
-            id="ee-com"
-            type="number"
-            min={0}
-            max={100}
-            value={comision}
-            onChange={(e) => setComision(e.target.value)}
-          />
-        </div>
+        <CamposPago pago={pago} onChange={setPago} />
+        {pago.tipo_pago === "comision" && (
+          <div className="space-y-2">
+            <Label htmlFor="ee-com">Porcentaje de comisión (%)</Label>
+            <Input
+              id="ee-com"
+              type="number"
+              min={0}
+              max={100}
+              value={comision}
+              onChange={(e) => setComision(e.target.value)}
+            />
+          </div>
+        )}
         <div className="space-y-2">
           <Label htmlFor="ee-obs">Observaciones</Label>
           <Textarea
@@ -473,5 +502,87 @@ function EditarEmpleado({
         </Button>
       </DialogFooter>
     </DialogContent>
+  );
+}
+
+/** Cómo se le paga al trabajador, tal cual se edita en el formulario. */
+type DatosPago = { tipo_pago: TipoPago; salario: string; auxilio: string };
+
+// Al pasar a salario fijo se propone el mínimo legal vigente + auxilio.
+const PAGO_POR_DEFECTO: DatosPago = {
+  tipo_pago: "comision",
+  salario: String(SMMLV),
+  auxilio: String(AUXILIO_TRANSPORTE),
+};
+
+/** Columnas de pago para la BD. Lanza si el salario no es válido. */
+function validarPago(p: DatosPago) {
+  if (p.tipo_pago === "comision") {
+    return { tipo_pago: p.tipo_pago, salario_mensual: 0, auxilio_transporte: 0 };
+  }
+  const salario = Number(p.salario);
+  const auxilio = Number(p.auxilio || 0);
+  if (!Number.isFinite(salario) || salario <= 0)
+    throw new Error("El salario mensual debe ser mayor que cero");
+  if (!Number.isFinite(auxilio) || auxilio < 0)
+    throw new Error("El auxilio de transporte no puede ser negativo");
+  return { tipo_pago: p.tipo_pago, salario_mensual: salario, auxilio_transporte: auxilio };
+}
+
+/**
+ * Selector de tipo de pago: comisión (% de lo que lava) o salario fijo, que se
+ * paga por quincena en la nómina aparte y no gana comisión.
+ */
+function CamposPago({
+  pago,
+  onChange,
+}: {
+  pago: DatosPago;
+  onChange: (p: DatosPago) => void;
+}) {
+  const quincena = pagoQuincena({
+    salario_mensual: Number(pago.salario) || 0,
+    auxilio_transporte: Number(pago.auxilio) || 0,
+  });
+  return (
+    <div className="space-y-3">
+      <label className="flex items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          checked={pago.tipo_pago === "salario"}
+          onChange={(e) =>
+            onChange({ ...pago, tipo_pago: e.target.checked ? "salario" : "comision" })
+          }
+        />
+        Salario fijo (no gana comisión, se paga por quincena)
+      </label>
+      {pago.tipo_pago === "salario" && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="pago-salario">Salario mensual</Label>
+            <Input
+              id="pago-salario"
+              type="number"
+              min={0}
+              value={pago.salario}
+              onChange={(e) => onChange({ ...pago, salario: e.target.value })}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="pago-auxilio">Auxilio de transporte</Label>
+            <Input
+              id="pago-auxilio"
+              type="number"
+              min={0}
+              value={pago.auxilio}
+              onChange={(e) => onChange({ ...pago, auxilio: e.target.value })}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground sm:col-span-2">
+            Por quincena: <strong>{formatCOP(quincena)}</strong>
+          </p>
+        </div>
+      )}
+    </div>
   );
 }

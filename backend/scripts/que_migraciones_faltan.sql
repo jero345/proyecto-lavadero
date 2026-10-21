@@ -43,6 +43,10 @@ with marcas as (
   select '0043 — buscador de clientes en el servidor',
          exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                   where n.nspname = 'public' and p.proname = 'buscar_clientes')
+  union all
+  select '0044 — nómina de salario fijo',
+         exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname = 'public' and p.proname = 'liquidar_salario')
 )
 select migracion,
        case when aplicada then 'OK — ya está' else 'FALTA — hay que correrla' end as estado

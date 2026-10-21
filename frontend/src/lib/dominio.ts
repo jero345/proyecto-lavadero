@@ -126,3 +126,30 @@ export const CLASE_ESTADO: Record<EstadoOrden, string> = {
   completado: "bg-blue-100 text-blue-800 border-blue-200",
   entregado: "bg-green-100 text-green-800 border-green-200",
 };
+
+// Salario mínimo legal vigente de Colombia (SMMLV) y auxilio de transporte de
+// 2026. Es lo que se propone al pasar a un trabajador a salario fijo; cada año
+// hay que actualizarlo aquí y en el sueldo de cada trabajador (Empleados).
+export const SMMLV = 1_750_905;
+export const AUXILIO_TRANSPORTE = 249_095;
+
+/** Lo que se le paga por quincena a un trabajador de salario fijo. */
+export function pagoQuincena(e: { salario_mensual: number; auxilio_transporte: number }) {
+  return Math.round((Number(e.salario_mensual) + Number(e.auxilio_transporte)) / 2);
+}
+
+/**
+ * Las dos quincenas del mes de `fecha` (1–15 y 16–último día), en YYYY-MM-DD.
+ * `actual` es la quincena en la que cae la fecha.
+ */
+export function quincenasDelMes(fecha: Date) {
+  const y = fecha.getFullYear();
+  const m = fecha.getMonth();
+  const mm = String(m + 1).padStart(2, "0");
+  const ultimo = new Date(y, m + 1, 0).getDate();
+  const quincenas = [
+    { clave: "1", label: "1ª quincena", inicio: `${y}-${mm}-01`, fin: `${y}-${mm}-15` },
+    { clave: "2", label: "2ª quincena", inicio: `${y}-${mm}-16`, fin: `${y}-${mm}-${ultimo}` },
+  ];
+  return { quincenas, actual: fecha.getDate() <= 15 ? "1" : "2" };
+}
