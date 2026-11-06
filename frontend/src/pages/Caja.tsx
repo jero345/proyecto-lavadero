@@ -71,12 +71,24 @@ export default function Caja() {
   // fuera del total del turno. Se avisan aparte, abajo.
   const esGastoFijo = (m: CajaMovimiento) =>
     (m.concepto ?? "").startsWith("Gasto fijo:");
+  // Igual el salario fijo ("Nómina fija: …", lo genera liquidar_salario): no
+  // sale del cajón del día, pero el cierre lo resta en la columna Nómina.
+  const esNominaFija = (m: CajaMovimiento) =>
+    (m.concepto ?? "").startsWith("Nómina fija:");
 
-  const movimientos = useMemo(() => abiertos.filter((m) => !esGastoFijo(m)), [abiertos]);
+  const movimientos = useMemo(
+    () => abiertos.filter((m) => !esGastoFijo(m) && !esNominaFija(m)),
+    [abiertos],
+  );
   const gastosFijos = useMemo(() => abiertos.filter(esGastoFijo), [abiertos]);
   const totalGastosFijos = useMemo(
     () => gastosFijos.reduce((acc, m) => acc + Number(m.monto), 0),
     [gastosFijos],
+  );
+  const nominaFija = useMemo(() => abiertos.filter(esNominaFija), [abiertos]);
+  const totalNominaFija = useMemo(
+    () => nominaFija.reduce((acc, m) => acc + Number(m.monto), 0),
+    [nominaFija],
   );
 
   const totales = useMemo(() => {
@@ -160,6 +172,20 @@ export default function Caja() {
         </div>
       )}
 
+      {/* El salario fijo tampoco baja el total del día: lo resta el cierre. */}
+      {totalNominaFija > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <span>
+            <strong>{formatCOP(totalNominaFija)}</strong> en salario fijo (
+            {nominaFija.length} pago{nominaFija.length === 1 ? "" : "s"}) no se
+            restan del total del día: se descuentan en la nómina del cierre.
+          </span>
+          <Link to="/nomina" className="font-medium underline underline-offset-2">
+            Ver nómina
+          </Link>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">Movimientos sin cerrar</h2>
         <div className="flex gap-2">
@@ -181,12 +207,21 @@ export default function Caja() {
                 <AlertDialogDescription>
                   Se consolidarán {abiertos.length} movimiento(s) con un total de{" "}
                   <strong>{formatCOP(totales.general)}</strong>.
-                  {totalGastosFijos > 0 && (
+                  {totalGastosFijos + totalNominaFija > 0 && (
                     <>
                       {" "}
-                      Además se descuentan {formatCOP(totalGastosFijos)} de gastos
-                      fijos, así que el cierre queda en{" "}
-                      <strong>{formatCOP(totales.general - totalGastosFijos)}</strong>.
+                      Además se descuentan{" "}
+                      {[
+                        totalGastosFijos > 0 && `${formatCOP(totalGastosFijos)} de gastos fijos`,
+                        totalNominaFija > 0 && `${formatCOP(totalNominaFija)} de salario fijo`,
+                      ]
+                        .filter(Boolean)
+                        .join(" y ")}
+                      , así que el cierre queda en{" "}
+                      <strong>
+                        {formatCOP(totales.general - totalGastosFijos - totalNominaFija)}
+                      </strong>
+                      .
                     </>
                   )}{" "}
                   Esta acción no se puede deshacer.

@@ -47,6 +47,10 @@ with marcas as (
   select '0044 — nómina de salario fijo',
          exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                   where n.nspname = 'public' and p.proname = 'liquidar_salario')
+  union all
+  select '0045 — nómina por días y salario en el cierre',
+         exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname = 'public' and p.proname = 'liquidar_nomina_dias')
 )
 select migracion,
        case when aplicada then 'OK — ya está' else 'FALTA — hay que correrla' end as estado

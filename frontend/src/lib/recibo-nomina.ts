@@ -45,6 +45,7 @@ export async function imprimirComprobanteNomina(
     p_empleado_id: liquidacion.empleado_id,
     p_fecha_inicio: liquidacion.fecha_inicio,
     p_fecha_fin: liquidacion.fecha_fin,
+    p_dias: liquidacion.dias,
   });
   if (error) throw error;
 

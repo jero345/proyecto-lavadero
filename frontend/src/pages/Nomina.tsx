@@ -65,7 +65,6 @@ function hoyISO() {
 }
 
 export default function Nomina() {
-  const queryClient = useQueryClient();
   const { isStaff } = useAuth();
   const { data: activos = [] } = useEmpleados();
   // Los de salario fijo (Diego) no ganan comisión: van en su nómina aparte.
@@ -83,7 +82,6 @@ export default function Nomina() {
   const [empleadoId, setEmpleadoId] = useState("");
   const [inicio, setInicio] = useState(primerDiaDelMes());
   const [fin, setFin] = useState(hoyISO());
-  const [metodo, setMetodo] = useState<MetodoPago>("efectivo");
   // Liquidación abierta: muestra qué servicios hizo el empleado en ese periodo.
   const [abierta, setAbierta] = useState<string | null>(null);
   // Consulta de un periodo SIN liquidar (solo para mirar el trabajo hecho).
@@ -147,18 +145,6 @@ export default function Nomina() {
       .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
   }, [liquidaciones, nombrePorId]);
 
-  // A cada trabajador se le liquida una sola vez al día (lo impone el servidor,
-  // migración 0032). Acá se refleja en la pantalla para no dejar intentarlo.
-  const liquidadosHoy = useMemo(() => {
-    const hoy = hoyISO();
-    const s = new Set<string>();
-    for (const l of liquidaciones) {
-      if (fechaLocalISO(new Date(l.created_at)) === hoy) s.add(l.empleado_id);
-    }
-    return s;
-  }, [liquidaciones]);
-  const yaLiquidadoHoy = empleadoId !== "" && liquidadosHoy.has(empleadoId);
-
   // Comprobante del trabajador: qué hizo en el periodo y cuánto se le paga.
   async function imprimirComprobante(l: NominaLiquidacion, nombre: string) {
     setImprimiendoId(l.id);
@@ -173,37 +159,6 @@ export default function Nomina() {
     }
   }
 
-  const liquidar = useMutation({
-    mutationFn: async () => {
-      if (!empleadoId) throw new Error("Selecciona un empleado");
-      const { data, error } = await supabase.rpc("liquidar_nomina", {
-        p_empleado_id: empleadoId,
-        p_fecha_inicio: inicio,
-        p_fecha_fin: fin,
-        p_metodo_pago: metodo,
-      });
-      if (error) throw error;
-      return data as NominaLiquidacion;
-    },
-    onSuccess: (l) => {
-      toast.success("Liquidación generada", {
-        description:
-          l.total_pagar > 0
-            ? `A pagar ${formatCOP(l.total_pagar)} · egreso registrado en caja`
-            : `${l.total_servicios} servicios · sin monto a pagar`,
-      });
-      // La liquidación mete un egreso en la caja principal.
-      queryClient.invalidateQueries({ queryKey: ["nomina"] });
-      queryClient.invalidateQueries({ queryKey: ["caja"] });
-      // El tablero de la dashboard se limpia con el nuevo cierre de nómina.
-      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-    },
-    onError: (e: unknown) =>
-      toast.error("No se pudo liquidar", {
-        description: e instanceof Error ? e.message : "",
-      }),
-  });
-
   return (
     <div className="space-y-6">
       {/* Quiénes trabajaron hoy y todavía no tienen su liquidación del día. */}
@@ -214,7 +169,7 @@ export default function Nomina() {
           <CardTitle className="text-base">Nómina del trabajador</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
             <div className="space-y-2">
               <Label>Empleado</Label>
               <Select value={empleadoId} onValueChange={setEmpleadoId}>
@@ -225,7 +180,6 @@ export default function Nomina() {
                   {empleados.map((e) => (
                     <SelectItem key={e.id} value={e.id}>
                       {e.nombre} · {e.porcentaje_comision}%
-                      {liquidadosHoy.has(e.id) && " · ya liquidado hoy"}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -249,69 +203,39 @@ export default function Nomina() {
                 onChange={(e) => setFin(e.target.value)}
               />
             </div>
-            <div className="space-y-2">
-              <Label>Pago con</Label>
-              <Select value={metodo} onValueChange={(v) => setMetodo(v as MetodoPago)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {METODOS_PAGO.map((m) => (
-                    <SelectItem key={m.value} value={m.value}>
-                      {m.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Button
-                onClick={() => liquidar.mutate()}
-                disabled={liquidar.isPending || yaLiquidadoHoy}
-                title={
-                  yaLiquidadoHoy
-                    ? "A este trabajador ya se le liquidó hoy"
-                    : undefined
+            {/* Solo reporte: muestra el trabajo del periodo sin liquidar
+                nada ni tocar la caja. */}
+            <Button
+              variant="outline"
+              title="Ver cuánto ha hecho el trabajador entre las dos fechas, sin liquidar"
+              onClick={() => {
+                if (!empleadoId) {
+                  toast.error("Selecciona un empleado");
+                  return;
                 }
-              >
-                {liquidar.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Calculator className="h-4 w-4" />
-                )}
-                Liquidar
-              </Button>
-              {/* Solo reporte: muestra el trabajo del periodo sin liquidar
-                  nada ni tocar la caja. */}
-              <Button
-                variant="outline"
-                title="Ver cuánto ha hecho el trabajador entre las dos fechas, sin liquidar"
-                onClick={() => {
-                  if (!empleadoId) {
-                    toast.error("Selecciona un empleado");
-                    return;
-                  }
-                  setConsulta({ empleadoId, inicio, fin });
-                }}
-              >
-                <FileText className="h-4 w-4" />
-                Sacar reporte
-              </Button>
-            </div>
+                setConsulta({ empleadoId, inicio, fin });
+              }}
+            >
+              <FileText className="h-4 w-4" />
+              Sacar reporte
+            </Button>
           </div>
-          {yaLiquidadoHoy ? (
-            <p className="mt-3 text-xs font-medium text-amber-700">
-              A este trabajador ya se le liquidó hoy. Solo se puede liquidar una vez
-              al día.
-            </p>
-          ) : (
-            <p className="mt-3 text-xs text-muted-foreground">
-              <strong>Sacar reporte</strong> solo muestra qué hizo el trabajador entre
-              las dos fechas: no liquida ni toca la caja. Al{" "}
-              <strong>liquidar</strong>, en cambio, el monto a pagar se registra como
-              egreso en la caja principal con el método elegido, y cada trabajador se
-              liquida una sola vez al día.
-            </p>
+          <p className="mt-3 text-xs text-muted-foreground">
+            <strong>Sacar reporte</strong> solo muestra qué hizo el trabajador entre
+            las dos fechas: no liquida ni toca la caja. Para <strong>pagar</strong>,
+            marca abajo los días que se le pagan (uno, toda la semana…): el monto se
+            registra como egreso en la caja principal y un día no se paga dos veces.
+          </p>
+
+          {empleadoId && (
+            <DiasPendientes
+              key={empleadoId}
+              empleadoId={empleadoId}
+              nombre={nombrePorId.get(empleadoId) ?? "Trabajador"}
+              porcentaje={
+                Number(empleados.find((e) => e.id === empleadoId)?.porcentaje_comision) || 0
+              }
+            />
           )}
         </CardContent>
       </Card>
@@ -436,6 +360,12 @@ export default function Nomina() {
                               </TableCell>
                               <TableCell className="whitespace-nowrap font-medium">
                                 {formatFecha(l.fecha_inicio)} – {formatFecha(l.fecha_fin)}
+                                {l.dias && (
+                                  <span className="block text-xs font-normal text-muted-foreground">
+                                    {l.dias.length} día{l.dias.length === 1 ? "" : "s"} elegido
+                                    {l.dias.length === 1 ? "" : "s"}
+                                  </span>
+                                )}
                               </TableCell>
                               {l.tipo === "salario" ? (
                                 <TableCell
@@ -503,6 +433,7 @@ export default function Nomina() {
                                     empleadoId={l.empleado_id}
                                     inicio={l.fecha_inicio}
                                     fin={l.fecha_fin}
+                                    dias={l.dias}
                                   />
                                 </TableCell>
                               </TableRow>
@@ -517,6 +448,177 @@ export default function Nomina() {
             );
           })
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Días trabajados que todavía no se le pagan al trabajador. Se marcan los que
+ * se pagan ahora (uno solo, toda la semana…) y salen en una sola liquidación y
+ * un solo egreso de caja (`liquidar_nomina_dias`, migración 0045). El servidor
+ * no deja pagar dos veces el mismo día.
+ */
+function DiasPendientes({
+  empleadoId,
+  nombre,
+  porcentaje,
+}: {
+  empleadoId: string;
+  nombre: string;
+  porcentaje: number;
+}) {
+  const queryClient = useQueryClient();
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  const [metodo, setMetodo] = useState<MetodoPago>("efectivo");
+
+  const { data: dias = [], isLoading } = useQuery({
+    queryKey: ["nomina", "pendientes-dias", empleadoId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("dias_pendientes_nomina", {
+        p_empleado_id: empleadoId,
+      });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+
+  const elegidos = dias.filter((d) => marcados.has(d.dia));
+  const facturado = elegidos.reduce((acc, d) => acc + Number(d.total), 0);
+  const aPagar = Math.round((facturado * porcentaje) / 100);
+  const todos = dias.length > 0 && elegidos.length === dias.length;
+
+  const alternar = (dia: string) =>
+    setMarcados((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(dia)) next.add(dia);
+      return next;
+    });
+
+  const pagar = useMutation({
+    mutationFn: async () => {
+      if (elegidos.length === 0) throw new Error("Marca al menos un día");
+      const { data, error } = await supabase.rpc("liquidar_nomina_dias", {
+        p_empleado_id: empleadoId,
+        p_dias: elegidos.map((d) => d.dia),
+        p_metodo_pago: metodo,
+      });
+      if (error) throw error;
+      return data as NominaLiquidacion;
+    },
+    onSuccess: (l) => {
+      toast.success(`Nómina de ${nombre} pagada`, {
+        description:
+          l.total_pagar > 0
+            ? `A pagar ${formatCOP(l.total_pagar)} · egreso registrado en caja`
+            : `${l.total_servicios} servicios · sin monto a pagar`,
+      });
+      setMarcados(new Set());
+      // La liquidación mete un egreso en la caja principal.
+      queryClient.invalidateQueries({ queryKey: ["nomina"] });
+      queryClient.invalidateQueries({ queryKey: ["caja"] });
+    },
+    onError: (e: unknown) =>
+      toast.error("No se pudo pagar", {
+        description: e instanceof Error ? e.message : "",
+      }),
+  });
+
+  if (isLoading) {
+    return <p className="mt-4 text-sm text-muted-foreground">Cargando días…</p>;
+  }
+  if (dias.length === 0) {
+    return (
+      <p className="mt-4 rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">
+        {nombre} no tiene días pendientes por pagar.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-4 space-y-3">
+      <div className="overflow-hidden rounded-lg border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-10">
+                <input
+                  type="checkbox"
+                  aria-label="Marcar todos los días"
+                  checked={todos}
+                  onChange={() =>
+                    setMarcados(todos ? new Set() : new Set(dias.map((d) => d.dia)))
+                  }
+                />
+              </TableHead>
+              <TableHead>Día sin pagar</TableHead>
+              <TableHead className="text-right">Órdenes</TableHead>
+              <TableHead className="text-right">Facturado</TableHead>
+              <TableHead className="text-right">Comisión</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {dias.map((d) => (
+              <TableRow
+                key={d.dia}
+                className="cursor-pointer"
+                onClick={() => alternar(d.dia)}
+              >
+                <TableCell>
+                  <input
+                    type="checkbox"
+                    aria-label={`Pagar ${formatFecha(d.dia)}`}
+                    checked={marcados.has(d.dia)}
+                    onChange={() => alternar(d.dia)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </TableCell>
+                <TableCell className="font-medium">{formatFecha(d.dia)}</TableCell>
+                <TableCell className="text-right">{d.ordenes}</TableCell>
+                <TableCell className="text-right">{formatCOP(d.total)}</TableCell>
+                <TableCell className="text-right">
+                  {formatCOP(Math.round((Number(d.total) * porcentaje) / 100))}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <p className="text-sm">
+          {elegidos.length} día{elegidos.length === 1 ? "" : "s"} marcado
+          {elegidos.length === 1 ? "" : "s"} · {porcentaje}% de {formatCOP(facturado)} ={" "}
+          <strong className="text-primary">{formatCOP(aPagar)}</strong>
+        </p>
+        <div className="flex items-end gap-2">
+          <div className="space-y-2">
+            <Label>Pago con</Label>
+            <Select value={metodo} onValueChange={(v) => setMetodo(v as MetodoPago)}>
+              <SelectTrigger className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {METODOS_PAGO.map((m) => (
+                  <SelectItem key={m.value} value={m.value}>
+                    {m.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            onClick={() => pagar.mutate()}
+            disabled={pagar.isPending || elegidos.length === 0}
+          >
+            {pagar.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Calculator className="h-4 w-4" />
+            )}
+            Pagar días marcados
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -548,7 +650,11 @@ function NominaSalario({
     (q) => q.clave === quincena,
   )!;
   const empleado = asalariados.find((e) => e.id === empleadoId);
-  const monto = empleado ? pagoQuincena(empleado) : 0;
+  const quincenaNormal = empleado ? pagoQuincena(empleado) : 0;
+  // El monto viene con la quincena normal pero se puede cambiar al pagar
+  // (faltó días, un extra…). Vacío = la quincena normal.
+  const [montoEditado, setMontoEditado] = useState("");
+  const monto = montoEditado === "" ? quincenaNormal : Number(montoEditado);
 
   // Reflejo en pantalla de la regla del servidor: una quincena se paga una vez.
   const yaPagada = liquidaciones.some(
@@ -562,19 +668,23 @@ function NominaSalario({
   const pagar = useMutation({
     mutationFn: async () => {
       if (!empleadoId) throw new Error("Selecciona un trabajador");
+      if (!Number.isFinite(monto) || monto <= 0)
+        throw new Error("El monto a pagar debe ser mayor que cero");
       const { data, error } = await supabase.rpc("liquidar_salario", {
         p_empleado_id: empleadoId,
         p_fecha_inicio: periodo.inicio,
         p_fecha_fin: periodo.fin,
         p_metodo_pago: metodo,
+        p_monto: monto,
       });
       if (error) throw error;
       return data as NominaLiquidacion;
     },
     onSuccess: (l) => {
       toast.success("Quincena pagada", {
-        description: `${formatCOP(l.total_pagar)} · egreso registrado en caja`,
+        description: `${formatCOP(l.total_pagar)} · se descuenta en el cierre de caja`,
       });
+      setMontoEditado("");
       queryClient.invalidateQueries({ queryKey: ["nomina"] });
       queryClient.invalidateQueries({ queryKey: ["caja"] });
     },
@@ -593,10 +703,16 @@ function NominaSalario({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6 lg:items-end">
           <div className="space-y-2">
             <Label>Trabajador</Label>
-            <Select value={empleadoId} onValueChange={setEmpleadoId}>
+            <Select
+              value={empleadoId}
+              onValueChange={(v) => {
+                setEmpleadoId(v);
+                setMontoEditado("");
+              }}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Selecciona" />
               </SelectTrigger>
@@ -648,6 +764,17 @@ function NominaSalario({
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="sal-monto">Monto a pagar</Label>
+            <Input
+              id="sal-monto"
+              type="number"
+              min={0}
+              disabled={!empleado}
+              value={montoEditado === "" ? (empleado ? String(quincenaNormal) : "") : montoEditado}
+              onChange={(e) => setMontoEditado(e.target.value)}
+            />
+          </div>
           <Button
             onClick={() => pagar.mutate()}
             disabled={pagar.isPending || !empleado || yaPagada}
@@ -671,8 +798,9 @@ function NominaSalario({
               <>
                 Salario {formatCOP(empleado.salario_mensual)} + auxilio de transporte{" "}
                 {formatCOP(empleado.auxilio_transporte)} al mes →{" "}
-                <strong>{formatCOP(monto)}</strong> por quincena. No gana comisión; el
-                pago sale como egreso de la caja principal.
+                <strong>{formatCOP(quincenaNormal)}</strong> por quincena (puedes cambiar el
+                monto antes de pagar). No gana comisión, y el pago no baja el total del
+                día en Caja: se descuenta en la nómina del cierre de caja.
               </>
             )}
           </p>
@@ -799,14 +927,20 @@ function DatoPeriodo({
  * sirve igual para ver el detalle de una liquidación ya hecha que para
  * consultar un periodo SIN liquidar.
  */
-function useDetalleNomina(empleadoId: string, inicio: string, fin: string) {
+function useDetalleNomina(
+  empleadoId: string,
+  inicio: string,
+  fin: string,
+  dias: string[] | null = null,
+) {
   return useQuery({
-    queryKey: ["nomina", "detalle", empleadoId, inicio, fin],
+    queryKey: ["nomina", "detalle", empleadoId, inicio, fin, dias],
     queryFn: async () => {
       const { data, error } = await supabase.rpc("detalle_nomina", {
         p_empleado_id: empleadoId,
         p_fecha_inicio: inicio,
         p_fecha_fin: fin,
+        p_dias: dias,
       });
       if (error) throw error;
       return data ?? [];
@@ -819,12 +953,14 @@ function DetalleOrdenes({
   empleadoId,
   inicio,
   fin,
+  dias = null,
 }: {
   empleadoId: string;
   inicio: string;
   fin: string;
+  dias?: string[] | null;
 }) {
-  const { data: ordenes = [], isLoading } = useDetalleNomina(empleadoId, inicio, fin);
+  const { data: ordenes = [], isLoading } = useDetalleNomina(empleadoId, inicio, fin, dias);
 
   if (isLoading) {
     return <p className="p-4 text-center text-sm text-muted-foreground">Cargando detalle…</p>;

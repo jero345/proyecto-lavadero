@@ -439,6 +439,8 @@ export type Database = {
           abono_prestamo: number;
           /** salario = pago de quincena de sueldo fijo (sin servicios ni %). */
           tipo: TipoPago;
+          /** Días pagados cuando se eligieron a mano; null = todo el rango. */
+          dias: string[] | null;
           created_at: string;
         };
         Insert: {
@@ -452,6 +454,7 @@ export type Database = {
           total_pagar?: number;
           abono_prestamo?: number;
           tipo?: TipoPago;
+          dias?: string[] | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["nomina_liquidaciones"]["Insert"]>;
@@ -504,8 +507,18 @@ export type Database = {
           p_fecha_inicio: string;
           p_fecha_fin: string;
           p_metodo_pago?: MetodoPago;
+          /** null = la quincena del trabajador ((salario + auxilio) / 2). */
+          p_monto?: number | null;
         };
         Returns: Database["public"]["Tables"]["nomina_liquidaciones"]["Row"];
+      };
+      liquidar_nomina_dias: {
+        Args: { p_empleado_id: string; p_dias: string[]; p_metodo_pago?: MetodoPago };
+        Returns: Database["public"]["Tables"]["nomina_liquidaciones"]["Row"];
+      };
+      dias_pendientes_nomina: {
+        Args: { p_empleado_id: string };
+        Returns: { dia: string; ordenes: number; total: number }[];
       };
       avanzar_estado_orden: {
         Args: { p_orden_id: string };
@@ -524,7 +537,13 @@ export type Database = {
         Returns: undefined;
       };
       detalle_nomina: {
-        Args: { p_empleado_id: string; p_fecha_inicio: string; p_fecha_fin: string };
+        Args: {
+          p_empleado_id: string;
+          p_fecha_inicio: string;
+          p_fecha_fin: string;
+          /** Solo las órdenes de estos días (liquidación por días elegidos). */
+          p_dias?: string[] | null;
+        };
         Returns: {
           orden_id: string;
           fecha: string;
